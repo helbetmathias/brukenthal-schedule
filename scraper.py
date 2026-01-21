@@ -11,12 +11,6 @@ URL = "https://brukenthal.ro/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 OUTPUT_FILE = "timetable.json"
 
-# ✅ Cloudflare Worker notify endpoint
-WORKER_NOTIFY_URL = "https://shrill-tooth-d37a.ronzigamespro2007.workers.dev/notify"
-# ✅ put your AUTH_KEY value here (same as in Worker Variables/Secrets)
-WORKER_AUTH_KEY = os.getenv("WORKER_AUTH_KEY", "")  # recommended: set as env var
-
-
 COLUMNS_ORDER = [
     "Time",
     "9A", "9B", "9C", "9D",
@@ -36,42 +30,6 @@ DAY_MARKERS = {
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$")
 
 
-def notify_worker(updated_at: str, pdf_url: str, pdf_hash: str):
-    """
-    Sends an Expo push notification to all registered tokens via your Cloudflare Worker.
-    Only called when the PDF changed (pdf_hash differs).
-    """
-    if not WORKER_AUTH_KEY:
-        print("⚠️ WORKER_AUTH_KEY not set, skipping notify.")
-        return
-
-    payload = {
-        "title": "📅 Orar actualizat",
-        "body": f"A apărut un nou orar ({updated_at})",
-        "data": {
-            "type": "schedule_update",
-            "updated_at": updated_at,
-            "pdf_hash": pdf_hash,
-            "source_pdf": pdf_url,
-        },
-    }
-
-    try:
-        r = requests.post(
-            f"{WORKER_NOTIFY_URL}?key={WORKER_AUTH_KEY}",
-            json=payload,
-            headers={"Content-Type": "application/json"},
-            timeout=30,
-        )
-        # Worker returns JSON; print it for debug
-        try:
-            print("🔔 Worker notify:", r.status_code, r.json())
-        except Exception:
-            print("🔔 Worker notify:", r.status_code, r.text[:200])
-    except Exception as e:
-        print("❌ Notify failed:", e)
-
-
 def get_latest_pdf_url():
     html = requests.get(URL, headers=HEADERS, timeout=30).text
     m = re.search(r'href="([^"]*orarliceu[^"]*\.pdf)"', html, re.IGNORECASE)
@@ -79,14 +37,12 @@ def get_latest_pdf_url():
         return None
     return urljoin(URL, m.group(1))
 
-
 def file_hash(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
-
 
 def cluster_positions(values, tol=1.5):
     values = sorted(values)
@@ -155,8 +111,10 @@ def normalize_subject(subj: str) -> str:
         return ""
 
     # Remove leading single lowercase junk letter if followed by a real token
+    # Examples: "rEng-Su" -> "Eng-Su", "aRelort-M" -> "Relort-M"
     subj = re.sub(r"^[a-z](?=[A-Z0-9ĂÂÎȘȚ])", "", subj).strip()
 
+    # If still just noise
     if len(subj) < 2:
         return ""
     return subj
@@ -167,8 +125,8 @@ def cell_text_from_chars(
     x0, x1, y0, y1,
     y_tol=1.2,
     x_gap=1.0,
-    x_pad_left=1.4,
-    x_pad_right=0.35,
+    x_pad_left=1.4,   # keep strong on left to prevent bleed from previous column
+    x_pad_right=0.35, # small on right so you don't cut last letter
     y_pad=0.2
 ):
     sx0 = x0 + x_pad_left
@@ -238,6 +196,7 @@ def parse_day_block(day_crop, x_bounds):
             cx0, cx1 = x_bounds[c], x_bounds[c + 1]
             grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1)
 
+    # header row = row containing most class labels
     header_r = None
     best_score = -1
     for r in range(min(10, n_rows)):
@@ -312,6 +271,8 @@ def main():
 
     new_pdf_hash = file_hash(tmp)
 
+    # Load old JSON if exists
+    old_data = None
     old_hash = None
     if os.path.exists(OUTPUT_FILE):
         try:
@@ -321,19 +282,16 @@ def main():
         except Exception:
             pass
 
+    # If PDF didn't change → do nothing
     if old_hash == new_pdf_hash:
         print("PDF unchanged, skipping update.")
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
         return
 
+    # Parse new schedule
     schedule = parse_pdf(tmp)
 
-    updated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
     out = {
-        "updated_at": updated_at,
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "pdf_hash": new_pdf_hash,
         "source_pdf": pdf_url,
         "schedule": schedule
@@ -346,12 +304,6 @@ def main():
         os.remove(tmp)
     except OSError:
         pass
-
     print("Updated timetable.json | classes:", len(schedule))
-
-    # ✅ Notify AFTER successfully writing new JSON
-    notify_worker(updated_at=updated_at, pdf_url=pdf_url, pdf_hash=new_pdf_hash)
-
-
 if __name__ == "__main__":
     main()
