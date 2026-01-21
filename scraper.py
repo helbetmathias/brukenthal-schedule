@@ -19,9 +19,14 @@ def get_latest_pdf_url():
     return None
 
 def clean_text(text):
-    # Aggressive cleanup: remove newlines, multiple spaces
     if not text: return ""
+    # Remove newlines and weird spaces
     return re.sub(r'\s+', ' ', str(text)).strip()
+
+def is_time_slot(text):
+    # Checks if text looks like "7:20" or "8:00" or "12:00"
+    if not text: return False
+    return bool(re.search(r'\d{1,2}[:.]\d{2}', text))
 
 def parse_pdf(pdf_path):
     final_schedule = {}
@@ -36,10 +41,9 @@ def parse_pdf(pdf_path):
 
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages):
-            print(f"--- Page {i+1} ---")
+            print(f"--- Processing Page {i+1} ---")
             
             # 1. FIND DAY
-            # Scan the raw text of the entire page
             page_text = (page.extract_text() or "").upper().replace("\n", " ")
             current_day = None
             for key, val in day_mapping.items():
@@ -48,51 +52,56 @@ def parse_pdf(pdf_path):
                     break
             
             if not current_day:
-                print(f"   -> SKIP: No day found in text.")
+                print(f"   -> SKIP: No day found.")
                 continue
             
-            print(f"   -> Day: {current_day}")
+            print(f"   -> DAY: {current_day}")
 
             table = page.extract_table()
             if not table: continue
 
-            # 2. FIND HEADER ROW (The "9A, 9B..." row)
-            # Strategy: Look for a row that contains "10A" and "11A" 
-            # (We skip 9A/9B because the PDF messed them up with newlines)
-            header_row_index = -1
-            classes_row = []
-
-            for r_idx, row in enumerate(table):
-                # Flatten the row to a single string to search
-                row_str = " ".join([clean_text(c).upper() for c in row])
-                
-                # If this row mentions multiple classes, it's the header
-                if "10A" in row_str and "11A" in row_str:
-                    header_row_index = r_idx
-                    classes_row = [clean_text(c) for c in row]
-                    print(f"   -> Header Found at Row {r_idx}")
-                    break
+            # 2. FIND HEADER ROW based on TIME SLOTS
+            # We look for the first row that starts with a Time (e.g. 7:20-8:00)
+            # The row BEFORE that one is the Class Header.
+            header_row = []
+            start_row_index = 0
             
-            if header_row_index == -1:
-                print("   -> SKIP: Header row (10A, 11A...) not found.")
+            for r_idx, row in enumerate(table):
+                first_cell = clean_text(row[0])
+                if is_time_slot(first_cell):
+                    # Found the first time slot! 
+                    # The headers must be in the previous row (r_idx - 1)
+                    if r_idx > 0:
+                        header_row = [clean_text(c) for c in table[r_idx-1]]
+                        start_row_index = r_idx
+                        print(f"   -> Header found above row {r_idx}")
+                        break
+            
+            if not header_row:
+                print("   -> SKIP: Could not find time slots to locate header.")
                 continue
 
             # 3. PARSE DATA
-            for row in table[header_row_index + 1:]:
+            for row in table[start_row_index:]:
                 if len(row) < 2: continue
                 
                 time_slot = clean_text(row[0])
-                if len(time_slot) < 3: continue 
+                if not is_time_slot(time_slot): continue 
                 
                 for col_index in range(1, len(row)):
-                    if col_index >= len(classes_row): break
+                    if col_index >= len(header_row): break
                     
-                    class_name = classes_row[col_index]
+                    # Get Class Name from the discovered header
+                    class_name = header_row[col_index]
+                    
+                    # Fix corrupted class names (e.g. "9A 9B" merged)
+                    # We take the first part if it looks like a class
+                    class_name = class_name.split(" ")[0]
+                    
                     subject = clean_text(row[col_index])
                     
-                    # Cleanup class name (remove garbage like "9A\n9B")
-                    class_name = class_name.split(" ")[0] # Take first word if split
-                    if len(class_name) > 5 or len(class_name) < 2: continue
+                    # Garbage checks
+                    if len(class_name) > 6 or len(class_name) < 2: continue
                     if not subject: continue
 
                     if class_name not in final_schedule: final_schedule[class_name] = {}
@@ -114,9 +123,10 @@ def main():
         
     new_schedule = parse_pdf("temp.pdf")
     
-    if not new_schedule: return
+    if not new_schedule: 
+        print("Empty schedule parsed.")
+        return
 
-    # Always save
     final_json = {
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "schedule": new_schedule
