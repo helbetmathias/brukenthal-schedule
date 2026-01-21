@@ -1,2 +1,4 @@
 requests
-pdfplumber
+tabula-py
+pandas
+openpyxl
