@@ -117,16 +117,12 @@ def cell_text_from_chars(
     x0, x1, y0, y1,
     y_tol=1.2,
     x_gap=1.0,
-    x_pad=1.4,   # ✅ key fix: shrink horizontally to avoid neighbor bleed
+    x_pad_left=1.4,   # keep strong on left to prevent bleed from previous column
+    x_pad_right=0.35, # small on right so you don't cut last letter
     y_pad=0.2
 ):
-    """
-    Build cell text by selecting chars whose center lies inside a *shrunken* bbox.
-    Shrinking bbox prevents characters near borders from being mis-assigned.
-    """
-    # shrink bbox a little
-    sx0 = x0 + x_pad
-    sx1 = x1 - x_pad
+    sx0 = x0 + x_pad_left
+    sx1 = x1 - x_pad_right
     sy0 = y0 + y_pad
     sy1 = y1 - y_pad
 
@@ -147,7 +143,6 @@ def cell_text_from_chars(
 
     sel.sort(key=lambda c: (c["top"], c["x0"]))
 
-    # group into lines by similar 'top'
     lines = []
     cur = []
     cur_top = None
