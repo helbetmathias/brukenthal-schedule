@@ -10,7 +10,7 @@ URL = "https://brukenthal.ro/"
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 OUTPUT_FILE = "timetable.json"
 
-# The exact order of classes in the PDF columns
+# Fixed Class Order (Columns 1 to 16)
 ORDERED_CLASSES = [
     "9A", "9B", "9C", "9D", 
     "10A", "10B", "10C", "10D", 
@@ -26,116 +26,103 @@ def get_latest_pdf_url():
     except Exception as e: print(f"Error finding PDF: {e}")
     return None
 
-def clean_text(text):
-    if not text: return ""
-    return re.sub(r'\s+', ' ', str(text)).strip()
-
 def is_time_slot(text):
-    # Matches "7:20", "8:00", etc.
-    return bool(re.search(r'\d{1,2}[:.]\d{2}', str(text)))
+    # Strict check: Must start with a digit and have a colon/dot (e.g., 7:20, 12:00)
+    if not text: return False
+    return bool(re.search(r'^\d{1,2}[:.]\d{2}', str(text).strip()))
 
 def parse_pdf(pdf_path):
     final_schedule = {}
     
+    # STRICT DAY MAPPING (Look for German names first to avoid "Week of Monday" errors)
     day_mapping = {
-        "MONTAG": "Luni", "LUNI": "Luni",
-        "DIENSTAG": "Marti", "MARTI": "Marti",
-        "MITTWOCH": "Miercuri", "MIERCURI": "Miercuri",
-        "DONNERSTAG": "Joi", "JOI": "Joi",
-        "FREITAG": "Vineri", "VINERI": "Vineri"
+        "MONTAG": "Luni",
+        "DIENSTAG": "Marti", 
+        "MITTWOCH": "Miercuri", 
+        "DONNERSTAG": "Joi", 
+        "FREITAG": "Vineri"
     }
 
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages):
-            print(f"--- Page {i+1} ---")
-
-            # 1. FIND DAY
-            page_text = (page.extract_text() or "").upper().replace("\n", " ")
+            print(f"--- Processing Page {i+1} ---")
+            
+            # 1. STRICT DAY DETECTION
+            page_text = (page.extract_text() or "").upper()
             current_day = None
-            for key, val in day_mapping.items():
-                if key in page_text:
-                    current_day = val
+            
+            # Only match the explicit German header unique to the page
+            for german, romanian in day_mapping.items():
+                if german in page_text:
+                    current_day = romanian
                     break
             
             if not current_day:
-                print("   -> SKIP: No day found.")
+                print(f"   -> SKIP: No valid day header found (checked German names).")
                 continue
             
-            print(f"   -> DAY: {current_day}")
+            print(f"   -> LOCKED DAY: {current_day}")
 
-            # 2. EXTRACT WORDS (The "Atomic" Method)
-            # Instead of trusting table lines, we get every single word and its X-position.
-            words = page.extract_words()
+            # 2. EXTRACT WORDS WITH COORDINATES
+            words = page.extract_words(x_tolerance=2, y_tolerance=2)
             
-            # We group words by their Y-position (Vertical Row)
-            # Tolerance=5 means words within 5 pixels height difference are on the "same line"
-            rows = {} 
+            # Group words by Y-position (Rows)
+            rows = {}
             for w in words:
-                y = round(w['top'] / 5) * 5 # Round to nearest 5 to group roughly aligned text
+                # Snap Y to nearest 10px to handle wavy lines
+                y = round(w['top'] / 10) * 10 
                 if y not in rows: rows[y] = []
                 rows[y].append(w)
 
-            # 3. ANALYZE EACH ROW
-            sorted_y_keys = sorted(rows.keys())
-            
-            for y in sorted_y_keys:
-                row_words = sorted(rows[y], key=lambda w: w['x0']) # Sort by Left-to-Right
+            # 3. PROCESS ROWS
+            for y in sorted(rows.keys()):
+                # Sort words in this row from Left to Right (X position)
+                row_words = sorted(rows[y], key=lambda w: w['x0'])
                 
-                # Check if the first word is a Time Slot
-                first_word_text = row_words[0]['text']
-                if not is_time_slot(first_word_text):
-                    continue
+                if not row_words: continue
 
-                time_slot = first_word_text
+                # CHECK 1: Does row start with a Time?
+                first_text = row_words[0]['text']
+                if not is_time_slot(first_text):
+                    # This removes headers like "9A 9B" or "LUNI 19.01"
+                    continue
                 
-                # Now we need to figure out which column (Class) each subsequent word belongs to.
-                # The page width is roughly 840px (A4 Landscape).
-                # 16 Classes + 1 Time column = 17 columns.
-                # Width per column approx 50px.
+                time_slot = first_text
+
+                # CHECK 2: Map remaining words to Classes based on X-Position
+                # Page layout assumptions (A4 Landscape):
+                # Time column ends approx at X=50
+                # Classes start at X=50 and go to X=800
+                # 16 Classes space ~47px each
                 
-                # We define approximate X-coordinates for each class column.
-                # NOTE: These values are estimated based on standard PDF layouts.
-                # If columns are misaligned, we might need to tweak 'start_x'
-                
-                # Start searching for subjects AFTER the time slot (approx x=50)
-                for word in row_words[1:]:
+                COL_START_X = 55
+                COL_WIDTH = 47.5 
+
+                for word in row_words[1:]: # Skip the time word
                     text = word['text']
                     x_pos = word['x0']
                     
-                    # Estimate column index based on X position
-                    # Time is at 0-50.
-                    # 9A starts around 50.
-                    # 12D ends around 800.
-                    # Total width ~750px for 16 classes -> ~47px per class.
+                    # Calculate which column bucket this word falls into
+                    # (x - start) / width
+                    col_index = int((x_pos - COL_START_X) / COL_WIDTH)
                     
-                    offset_x = x_pos - 60 # Subtract Time column width
-                    if offset_x < 0: continue 
-
-                    col_index = int(offset_x // 47) # 47 is the "magic number" for column width
-                    
+                    # Safety bounds
+                    if col_index < 0: continue
                     if col_index >= len(ORDERED_CLASSES): continue
                     
                     class_name = ORDERED_CLASSES[col_index]
                     
-                    # Basic cleanup
-                    if len(text) < 2: continue
-
-                    # SAVE DATA
+                    # Clean up subject text
+                    if len(text) < 2: continue # skip garbage
+                    
+                    # 4. SAVE TO SCHEDULE
                     if class_name not in final_schedule: final_schedule[class_name] = {}
                     if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
                     
-                    # We might catch fragments. We append them.
-                    # Later, the app just shows the list.
                     entry = f"{time_slot} | {text}"
                     
-                    # Check if we already added this subject (to avoid duplicate fragments)
-                    already_exists = False
-                    for existing in final_schedule[class_name][current_day]:
-                        if entry in existing: 
-                            already_exists = True
-                            break
-                    
-                    if not already_exists:
+                    # Deduplicate
+                    if entry not in final_schedule[class_name][current_day]:
                         final_schedule[class_name][current_day].append(entry)
 
     return final_schedule
@@ -151,7 +138,7 @@ def main():
     new_schedule = parse_pdf("temp.pdf")
     
     if not new_schedule: 
-        print("Error: Empty schedule.")
+        print("Error: Parsed schedule is empty.")
         return
 
     final_json = {
@@ -160,7 +147,7 @@ def main():
     }
     with open(OUTPUT_FILE, "w", encoding='utf-8') as f:
         json.dump(final_json, f, ensure_ascii=False, indent=2)
-    print("Success! JSON updated.")
+    print("Success.")
 
 if __name__ == "__main__":
     main()
