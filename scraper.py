@@ -23,48 +23,91 @@ def clean_text(text):
 
 def parse_pdf(pdf_path):
     final_schedule = {}
-    day_mapping = {"MONTAG": "Luni", "DIENSTAG": "Marti", "MITTWOCH": "Miercuri", "DONNERSTAG": "Joi", "FREITAG": "Vineri"}
+    
+    # German/Romanian mapping
+    day_mapping = {
+        "MONTAG": "Luni", 
+        "DIENSTAG": "Marti", 
+        "MITTWOCH": "Miercuri", 
+        "DONNERSTAG": "Joi", 
+        "FREITAG": "Vineri"
+    }
 
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
+        for i, page in enumerate(pdf.pages):
+            print(f"--- Processing Page {i+1} ---")
             table = page.extract_table()
-            if not table: continue
+            
+            if not table: 
+                print("   -> No table found. Skipping.")
+                continue
 
-            # Detect Day
-            header = clean_text(table[0][0]).upper()
-            current_day = next((val for key, val in day_mapping.items() if key in header), None)
-            if not current_day: continue
+            # FIX: Scan the entire first row for the day name
+            # We join all text in the first row to ensure we find the day even if cells are merged
+            first_row_text = " ".join([clean_text(cell).upper() for cell in table[0] if cell])
+            
+            current_day = None
+            for de_key, ro_val in day_mapping.items():
+                if de_key in first_row_text:
+                    current_day = ro_val
+                    break
+            
+            if not current_day:
+                print(f"   -> Could not detect a valid day in header: '{first_row_text[:50]}...' Skipping.")
+                continue
 
-            # Detect Classes (Row 0)
+            print(f"   -> Detected Day: {current_day}")
+
+            # Detect Classes (Row 0 contains class names like 9A, 9B...)
             classes_row = table[0]
 
-            # Read Times & Subjects
+            # Read Times & Subjects (Rows 1 to end)
             for row in table[1:]:
                 if len(row) < 2: continue
+                
+                # Time is usually in the first column
                 time_slot = clean_text(row[0])
                 
+                # Loop through columns to find subjects
                 for col_index in range(1, len(row)):
                     if col_index >= len(classes_row): break
+                    
                     class_name = clean_text(classes_row[col_index])
                     subject = clean_text(row[col_index])
                     
+                    # specific cleanup for your PDF format
                     if not class_name or not subject: continue
-                    
+                    if len(class_name) > 5: continue # Ignore long text that isn't a class name
+
                     if class_name not in final_schedule: final_schedule[class_name] = {}
                     if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
                     
-                    final_schedule[class_name][current_day].append(f"{time_slot} | {subject}")
+                    # Create entry
+                    entry = f"{time_slot} | {subject}"
+                    
+                    # Avoid duplicates
+                    if entry not in final_schedule[class_name][current_day]:
+                        final_schedule[class_name][current_day].append(entry)
+                        
     return final_schedule
 
 def main():
+    print("Finding PDF...")
     pdf_url = get_latest_pdf_url()
-    if not pdf_url: return
+    if not pdf_url: 
+        print("No PDF URL found.")
+        return
 
+    print(f"Downloading {pdf_url}...")
     pdf_data = requests.get(pdf_url, headers=HEADERS).content
     with open("temp.pdf", "wb") as f: f.write(pdf_data)
         
+    print("Parsing PDF...")
     new_schedule = parse_pdf("temp.pdf")
-    if not new_schedule: return
+    
+    if not new_schedule: 
+        print("Parsing result is empty.")
+        return
 
     # Load old data to compare
     old_data = {}
@@ -73,13 +116,16 @@ def main():
             with open(OUTPUT_FILE, "r") as f: old_data = json.load(f).get("schedule", {})
         except: pass
 
-    if new_schedule != old_data:
+    # Save if data exists (We force save now to fix your JSON)
+    if new_schedule:
+        print("Saving new data...")
         final_json = {
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "schedule": new_schedule
         }
         with open(OUTPUT_FILE, "w", encoding='utf-8') as f:
             json.dump(final_json, f, ensure_ascii=False, indent=2)
+        print("Success.")
 
 if __name__ == "__main__":
     main()
