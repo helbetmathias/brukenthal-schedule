@@ -10,6 +10,15 @@ URL = "https://brukenthal.ro/"
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 OUTPUT_FILE = "timetable.json"
 
+# WE HARDCODE THE CLASSES because the PDF headers are broken.
+# We trust the column order is always the same.
+ORDERED_CLASSES = [
+    "9A", "9B", "9C", "9D", 
+    "10A", "10B", "10C", "10D", 
+    "11A", "11B", "11C", "11D", 
+    "12A", "12B", "12C", "12D"
+]
+
 def get_latest_pdf_url():
     try:
         html = requests.get(URL, headers=HEADERS).text
@@ -20,11 +29,10 @@ def get_latest_pdf_url():
 
 def clean_text(text):
     if not text: return ""
-    # Remove newlines and weird spaces
     return re.sub(r'\s+', ' ', str(text)).strip()
 
 def is_time_slot(text):
-    # Checks if text looks like "7:20" or "8:00" or "12:00"
+    # Looks for "7:20", "8:00", etc.
     if not text: return False
     return bool(re.search(r'\d{1,2}[:.]\d{2}', text))
 
@@ -41,9 +49,9 @@ def parse_pdf(pdf_path):
 
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages):
-            print(f"--- Processing Page {i+1} ---")
-            
-            # 1. FIND DAY
+            print(f"--- Page {i+1} ---")
+
+            # 1. FIND DAY (Scan full text)
             page_text = (page.extract_text() or "").upper().replace("\n", " ")
             current_day = None
             for key, val in day_mapping.items():
@@ -52,62 +60,55 @@ def parse_pdf(pdf_path):
                     break
             
             if not current_day:
-                print(f"   -> SKIP: No day found.")
+                print("   -> SKIP: No day found.")
                 continue
             
             print(f"   -> DAY: {current_day}")
 
-            table = page.extract_table()
-            if not table: continue
+            # 2. EXTRACT TABLE WITH "TEXT" STRATEGY
+            # This is the magic fix. It ignores broken PDF lines and aligns by text whitespace.
+            settings = {
+                "vertical_strategy": "text",
+                "horizontal_strategy": "text",
+                "snap_tolerance": 5,
+            }
+            table = page.extract_table(settings)
 
-            # 2. FIND HEADER ROW based on TIME SLOTS
-            # We look for the first row that starts with a Time (e.g. 7:20-8:00)
-            # The row BEFORE that one is the Class Header.
-            header_row = []
-            start_row_index = 0
-            
-            for r_idx, row in enumerate(table):
-                first_cell = clean_text(row[0])
-                if is_time_slot(first_cell):
-                    # Found the first time slot! 
-                    # The headers must be in the previous row (r_idx - 1)
-                    if r_idx > 0:
-                        header_row = [clean_text(c) for c in table[r_idx-1]]
-                        start_row_index = r_idx
-                        print(f"   -> Header found above row {r_idx}")
-                        break
-            
-            if not header_row:
-                print("   -> SKIP: Could not find time slots to locate header.")
+            if not table: 
+                print("   -> SKIP: No table structure found.")
                 continue
 
-            # 3. PARSE DATA
-            for row in table[start_row_index:]:
+            # 3. PARSE DATA (Blindly map columns to classes)
+            for row in table:
+                # We need at least a time column + some data
                 if len(row) < 2: continue
                 
+                # Check column 0 for Time
                 time_slot = clean_text(row[0])
-                if not is_time_slot(time_slot): continue 
+                if not is_time_slot(time_slot): continue
                 
+                # If we found a time, assume the next columns are our classes in order
+                # Col 0 = Time
+                # Col 1 = 9A
+                # Col 2 = 9B
+                # ...
                 for col_index in range(1, len(row)):
-                    if col_index >= len(header_row): break
+                    # Stop if we run out of known classes
+                    class_idx = col_index - 1
+                    if class_idx >= len(ORDERED_CLASSES): break
                     
-                    # Get Class Name from the discovered header
-                    class_name = header_row[col_index]
-                    
-                    # Fix corrupted class names (e.g. "9A 9B" merged)
-                    # We take the first part if it looks like a class
-                    class_name = class_name.split(" ")[0]
-                    
+                    class_name = ORDERED_CLASSES[class_idx]
                     subject = clean_text(row[col_index])
                     
-                    # Garbage checks
-                    if len(class_name) > 6 or len(class_name) < 2: continue
                     if not subject: continue
+                    if len(subject) < 2: continue # Skip artifacts like "-"
 
+                    # Save Data
                     if class_name not in final_schedule: final_schedule[class_name] = {}
                     if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
                     
                     entry = f"{time_slot} | {subject}"
+                    # Remove duplicates
                     if entry not in final_schedule[class_name][current_day]:
                         final_schedule[class_name][current_day].append(entry)
 
@@ -124,7 +125,7 @@ def main():
     new_schedule = parse_pdf("temp.pdf")
     
     if not new_schedule: 
-        print("Empty schedule parsed.")
+        print("Error: Empty schedule.")
         return
 
     final_json = {
@@ -133,7 +134,7 @@ def main():
     }
     with open(OUTPUT_FILE, "w", encoding='utf-8') as f:
         json.dump(final_json, f, ensure_ascii=False, indent=2)
-    print("Success")
+    print("Success! JSON updated.")
 
 if __name__ == "__main__":
     main()
