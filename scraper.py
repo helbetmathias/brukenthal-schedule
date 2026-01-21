@@ -36,25 +36,20 @@ def get_latest_pdf_url():
     return None
 
 def is_time_slot(text):
+    # STRICT: Doar formatul 7:20 sau 12:00 (cu două puncte). 
+    # Respinge 19.01 (cu punct).
     if not text: return False
-    # FIX: Căutăm DOAR formatul cu două puncte (7:20), nu cu punct (19.01)
-    # Asta previne detectarea datei ca fiind o oră.
     return bool(re.search(r'^\d{1,2}:\d{2}', str(text).strip()))
-
-def get_vertical_overlap(r1, r2):
-    # Calculează cât de mult se suprapun două elemente pe verticală
-    # r1, r2 sunt dict-uri cu 'top' și 'bottom'
-    return max(0, min(r1['bottom'], r2['bottom']) - max(r1['top'], r2['top']))
 
 def parse_pdf(pdf_path):
     final_schedule = {}
 
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            # Toleranță mică pentru a nu lipi coloanele
-            words = page.extract_words(x_tolerance=1, y_tolerance=1)
+            # Extragem cuvintele
+            words = page.extract_words(x_tolerance=2, y_tolerance=2)
             
-            # 1. IDENTIFICĂ ZONELE ZILELOR
+            # 1. GĂSIRE ZONE ZILE (Slicing Vertical)
             day_zones = []
             for w in words:
                 text_upper = w['text'].upper()
@@ -72,21 +67,18 @@ def parse_pdf(pdf_path):
                 zone_top = zone['top']
                 zone_bottom = day_zones[i+1]['top'] if i+1 < len(day_zones) else 9999
                 
-                # Cuvintele din această zi
+                # Filtrăm cuvintele pentru ziua curentă
                 day_words = [w for w in words if zone_top <= w['top'] < zone_bottom]
                 if not day_words: continue
 
-                # 2. GĂSIRE RÂNDURI (ORE)
-                # Căutăm doar elementele care sunt ore valide (ex: 7:20)
+                # 2. DETECTARE RÂNDURI (ORE)
                 time_rows = []
                 for w in day_words:
                     if is_time_slot(w['text']):
-                        # Verificăm duplicatele (aceeași oră detectată de mai multe ori)
+                        # Verificăm să nu fie duplicat (același rând vizual)
                         is_duplicate = False
                         for tr in time_rows:
-                            # Dacă se suprapun semnificativ pe verticală, e același rând
-                            overlap = get_vertical_overlap(tr, w)
-                            if overlap > 5: 
+                            if abs(tr['top'] - w['top']) < 10:
                                 is_duplicate = True
                                 break
                         if not is_duplicate:
@@ -94,8 +86,8 @@ def parse_pdf(pdf_path):
                 
                 time_rows.sort(key=lambda x: x['top'])
 
-                # 3. GĂSIRE COLOANE (CLASE) - HARTA DINAMICĂ
-                # Căutăm header-ul cu clasele (9A, 9B...) din această zonă
+                # 3. DETECTARE COLOANE (CLASE)
+                # Căutăm headerele (9A, 9B...) pentru a stabili grila X
                 header_words = [w for w in day_words if w['text'] in ORDERED_CLASSES]
                 header_words.sort(key=lambda w: w['x0'])
                 
@@ -105,43 +97,52 @@ def parse_pdf(pdf_path):
                         curr = header_words[k]
                         cls_name = curr['text']
                         
-                        start_x = (header_words[k-1]['x1'] + curr['x0']) / 2 if k > 0 else curr['x0'] - 10
-                        end_x = (curr['x1'] + header_words[k+1]['x0']) / 2 if k < len(header_words)-1 else curr['x1'] + 50
+                        # Calculăm granițele (mijlocul distanței dintre coloane)
+                        # Start: mijlocul dintre clasa anterioară și cea curentă
+                        if k == 0:
+                            start_x = curr['x0'] - 20
+                        else:
+                            start_x = (header_words[k-1]['x1'] + curr['x0']) / 2
+                        
+                        # End: mijlocul dintre clasa curentă și cea următoare
+                        if k == len(header_words) - 1:
+                            end_x = curr['x1'] + 20
+                        else:
+                            end_x = (curr['x1'] + header_words[k+1]['x0']) / 2
                         
                         col_map.append({"class": cls_name, "min": start_x, "max": end_x})
                 else:
-                    # Fallback
+                    # Fallback A4 Landscape
                     curr_x = 55
                     width = 47.5
                     for cls in ORDERED_CLASSES:
                         col_map.append({"class": cls, "min": curr_x, "max": curr_x + width})
                         curr_x += width
 
-                # 4. ASIGNARE MATERII
+                # 4. ALOCARE (GRID MATCHING)
                 for w in day_words:
                     text = w['text']
                     if is_time_slot(text) or text in ORDERED_CLASSES or len(text) < 2: continue
                     if "MONTAG" in text.upper() or "LUNI" in text.upper(): continue
 
-                    # Găsim Ora (Rândul) prin SUPRAPUNERE
+                    # Găsim rândul (Ora) - Verificăm dacă cuvântul e pe aceeași linie cu ora
                     found_time = None
-                    best_overlap = 0
+                    word_mid_y = (w['top'] + w['bottom']) / 2
                     
                     for tr in time_rows:
-                        overlap = get_vertical_overlap(tr, w)
-                        # Trebuie să se suprapună măcar 50% din înălțime
-                        if overlap > (w['bottom'] - w['top']) * 0.5:
-                            if overlap > best_overlap:
-                                best_overlap = overlap
-                                found_time = tr['text']
+                        row_mid_y = (tr['top'] + tr['bottom']) / 2
+                        # Toleranță verticală mai mare (15px) pentru a prinde și textele ușor decalate
+                        if abs(word_mid_y - row_mid_y) < 15:
+                            found_time = tr['text']
+                            break
                     
                     if not found_time: continue
 
-                    # Găsim Clasa (Coloana)
-                    word_center_x = (w['x0'] + w['x1']) / 2
+                    # Găsim coloana (Clasa)
+                    word_mid_x = (w['x0'] + w['x1']) / 2
                     found_class = None
                     for col in col_map:
-                        if col['min'] <= word_center_x < col['max']:
+                        if col['min'] <= word_mid_x < col['max']:
                             found_class = col['class']
                             break
                     
@@ -158,7 +159,7 @@ def parse_pdf(pdf_path):
     return final_schedule
 
 def main():
-    print("Starting...")
+    print("Starting Scraper...")
     pdf_url = get_latest_pdf_url()
     if not pdf_url: return
     
@@ -168,7 +169,7 @@ def main():
     new_schedule = parse_pdf("temp.pdf")
     
     if not new_schedule: 
-        print("Empty.")
+        print("Empty schedule.")
         return
 
     final_json = {
