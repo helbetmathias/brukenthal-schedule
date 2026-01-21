@@ -29,18 +29,21 @@ def get_latest_pdf_url():
 def is_time_slot(text):
     # Strict check: Must start with a digit and have a colon/dot (e.g., 7:20, 12:00)
     if not text: return False
+    # Regex checks for "Digit:Digit" pattern at the start of the string
     return bool(re.search(r'^\d{1,2}[:.]\d{2}', str(text).strip()))
 
 def parse_pdf(pdf_path):
     final_schedule = {}
     
-    # STRICT DAY MAPPING (Look for German names first to avoid "Week of Monday" errors)
+    # STRICT DAY MAPPING 
+    # WE REMOVED "LUNI" to avoid false positives from the footer!
+    # We rely on "MONTAG" for Monday.
     day_mapping = {
         "MONTAG": "Luni",
-        "DIENSTAG": "Marti", 
-        "MITTWOCH": "Miercuri", 
-        "DONNERSTAG": "Joi", 
-        "FREITAG": "Vineri"
+        "DIENSTAG": "Marti", "MARTI": "Marti",
+        "MITTWOCH": "Miercuri", "MIERCURI": "Miercuri",
+        "DONNERSTAG": "Joi", "JOI": "Joi",
+        "FREITAG": "Vineri", "VINERI": "Vineri"
     }
 
     with pdfplumber.open(pdf_path) as pdf:
@@ -51,7 +54,7 @@ def parse_pdf(pdf_path):
             page_text = (page.extract_text() or "").upper()
             current_day = None
             
-            # Only match the explicit German header unique to the page
+            # Check for unique day names
             for german, romanian in day_mapping.items():
                 if german in page_text:
                     current_day = romanian
@@ -64,6 +67,7 @@ def parse_pdf(pdf_path):
             print(f"   -> LOCKED DAY: {current_day}")
 
             # 2. EXTRACT WORDS WITH COORDINATES
+            # This ignores table lines and just gets text location
             words = page.extract_words(x_tolerance=2, y_tolerance=2)
             
             # Group words by Y-position (Rows)
@@ -84,16 +88,16 @@ def parse_pdf(pdf_path):
                 # CHECK 1: Does row start with a Time?
                 first_text = row_words[0]['text']
                 if not is_time_slot(first_text):
-                    # This removes headers like "9A 9B" or "LUNI 19.01"
+                    # If not a time (e.g. "LUNI 19.01" or "9A 9B"), SKIP ROW
                     continue
                 
                 time_slot = first_text
 
                 # CHECK 2: Map remaining words to Classes based on X-Position
-                # Page layout assumptions (A4 Landscape):
-                # Time column ends approx at X=50
-                # Classes start at X=50 and go to X=800
-                # 16 Classes space ~47px each
+                # Page layout assumptions (A4 Landscape PDF):
+                # Time column ends approx at X=55
+                # Classes start at X=55 and go across the page
+                # Each class column is approx 47.5 pixels wide
                 
                 COL_START_X = 55
                 COL_WIDTH = 47.5 
@@ -103,7 +107,7 @@ def parse_pdf(pdf_path):
                     x_pos = word['x0']
                     
                     # Calculate which column bucket this word falls into
-                    # (x - start) / width
+                    # Formula: (Word_X - Start_X) / Column_Width
                     col_index = int((x_pos - COL_START_X) / COL_WIDTH)
                     
                     # Safety bounds
@@ -113,7 +117,7 @@ def parse_pdf(pdf_path):
                     class_name = ORDERED_CLASSES[col_index]
                     
                     # Clean up subject text
-                    if len(text) < 2: continue # skip garbage
+                    if len(text) < 2: continue # skip garbage characters
                     
                     # 4. SAVE TO SCHEDULE
                     if class_name not in final_schedule: final_schedule[class_name] = {}
