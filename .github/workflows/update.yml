@@ -2,10 +2,10 @@ name: Update Schedule
 
 on:
   schedule:
-    - cron: '0 * * * *' # Run every hour
-  push:                 # 🔴 RUNS INSTANTLY WHEN YOU SAVE CODE
-    branches: [ "main" ]
-  workflow_dispatch:    # Allows manual run
+    - cron: '0 * * * *'  # every hour (UTC)
+  push:
+    branches: ["main"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,19 +14,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          ref: main 
+          ref: main
 
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
-          
-      - run: pip install -r requirements.txt
-      
-      - run: python scraper.py
-      
-      - uses: stefanzweifel/git-auto-commit-action@v5
+          python-version: "3.9"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run scraper
+        run: python scraper.py
+
+      - name: Commit updated timetable.json
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: Update schedule
           branch: main
