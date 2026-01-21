@@ -37,7 +37,6 @@ def get_latest_pdf_url():
 
 
 def cluster_positions(values, tol=1.5):
-    """Cluster numeric positions that are within `tol`."""
     values = sorted(values)
     clusters = []
     for v in values:
@@ -65,12 +64,11 @@ def find_day_zones(page):
 
 
 def get_global_x_bounds(page):
-    # Grid vertical lines are in edges
     verts = [e for e in page.edges if e["orientation"] == "v"]
     xs = [e["x0"] for e in verts]
     x_bounds = sorted(cluster_positions(xs, tol=1.5))
 
-    # Expect 18 boundaries (17 columns => 18 borders)
+    # Expect 18 boundaries (17 columns => 18 borders). If too many, keep widest span.
     if len(x_bounds) > 18:
         best = None
         for i in range(0, len(x_bounds) - 17):
@@ -84,12 +82,9 @@ def get_global_x_bounds(page):
 
 
 def get_y_bounds_for_crop(page_crop):
-    """
-    IMPORTANT: Use edge["top"] (same coordinate system as words/chars top/bottom),
-    NOT y0/y1 (PDF bottom-origin space).
-    """
+    # IMPORTANT: use "top" (same coord system as chars/words), not y0/y1
     horiz = [e for e in page_crop.edges if e["orientation"] == "h"]
-    ys = [e["top"] for e in horiz]  # ✅ FIX
+    ys = [e["top"] for e in horiz]
     y_bounds = sorted(cluster_positions(ys, tol=1.5))
 
     cleaned = []
@@ -99,25 +94,60 @@ def get_y_bounds_for_crop(page_crop):
     return cleaned
 
 
-def cell_text_from_chars(chars, x0, x1, y0, y1, y_tol=1.2, x_gap=1.0):
+def normalize_subject(subj: str) -> str:
+    subj = (subj or "").strip()
+    subj = re.sub(r"\s+", " ", subj)
+
+    # Drop pure 1-letter junk (typical border bleed)
+    if re.fullmatch(r"[a-z]", subj):
+        return ""
+
+    # Remove leading single lowercase junk letter if followed by a real token
+    # Examples: "rEng-Su" -> "Eng-Su", "aRelort-M" -> "Relort-M"
+    subj = re.sub(r"^[a-z](?=[A-Z0-9ĂÂÎȘȚ])", "", subj).strip()
+
+    # If still just noise
+    if len(subj) < 2:
+        return ""
+    return subj
+
+
+def cell_text_from_chars(
+    chars,
+    x0, x1, y0, y1,
+    y_tol=1.2,
+    x_gap=1.0,
+    x_pad=1.4,   # ✅ key fix: shrink horizontally to avoid neighbor bleed
+    y_pad=0.2
+):
     """
-    Build text for a single cell by selecting PDF 'chars' whose center lies inside the cell bbox.
-    This avoids cross-column word merging that extract_words can do.
+    Build cell text by selecting chars whose center lies inside a *shrunken* bbox.
+    Shrinking bbox prevents characters near borders from being mis-assigned.
     """
+    # shrink bbox a little
+    sx0 = x0 + x_pad
+    sx1 = x1 - x_pad
+    sy0 = y0 + y_pad
+    sy1 = y1 - y_pad
+
+    if sx1 <= sx0:
+        sx0, sx1 = x0, x1
+    if sy1 <= sy0:
+        sy0, sy1 = y0, y1
+
     sel = []
     for ch in chars:
         cx = (ch["x0"] + ch["x1"]) / 2
         cy = (ch["top"] + ch["bottom"]) / 2
-        if (x0 <= cx <= x1) and (y0 <= cy <= y1):
+        if (sx0 < cx < sx1) and (sy0 < cy < sy1):
             sel.append(ch)
 
     if not sel:
         return ""
 
-    # Sort roughly by line then by x
     sel.sort(key=lambda c: (c["top"], c["x0"]))
 
-    # Group into lines by similar 'top'
+    # group into lines by similar 'top'
     lines = []
     cur = []
     cur_top = None
@@ -132,7 +162,6 @@ def cell_text_from_chars(chars, x0, x1, y0, y1, y_tol=1.2, x_gap=1.0):
     if cur:
         lines.append(cur)
 
-    # Join each line left-to-right; add spaces if there's a gap
     out_lines = []
     for line in lines:
         line.sort(key=lambda c: c["x0"])
@@ -157,7 +186,6 @@ def parse_day_block(day_crop, x_bounds):
     n_rows = len(y_bounds) - 1
     n_cols = len(x_bounds) - 1
 
-    # Build grid by reading chars inside each cell bbox
     grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
     for r in range(n_rows):
         ry0, ry1 = y_bounds[r], y_bounds[r + 1]
@@ -165,7 +193,7 @@ def parse_day_block(day_crop, x_bounds):
             cx0, cx1 = x_bounds[c], x_bounds[c + 1]
             grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1)
 
-    # Find header row: row that contains the most class labels
+    # header row = row containing most class labels
     header_r = None
     best_score = -1
     for r in range(min(10, n_rows)):
@@ -177,10 +205,8 @@ def parse_day_block(day_crop, x_bounds):
     if header_r is None or best_score < 5:
         return {}
 
-    # Map col index -> class name (col 0 is Time)
     col_to_class = {c: COLUMNS_ORDER[c] for c in range(1, min(17, n_cols))}
 
-    # Parse rows below header
     day_schedule = {cls: [] for cls in COLUMNS_ORDER[1:]}
     for r in range(header_r + 1, n_rows):
         time_txt = (grid[r][0] or "").strip()
@@ -188,7 +214,7 @@ def parse_day_block(day_crop, x_bounds):
             continue
 
         for c, cls in col_to_class.items():
-            subj = (grid[r][c] or "").strip()
+            subj = normalize_subject(grid[r][c])
             if not subj:
                 continue
             if subj in COLUMNS_ORDER:
@@ -203,7 +229,6 @@ def parse_pdf(pdf_path):
 
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[0]
-
         x_bounds = get_global_x_bounds(page)
 
         zones = find_day_zones(page)
@@ -234,13 +259,12 @@ def main():
         print("No PDF link found on site.")
         return
 
-    pdf_resp = requests.get(pdf_url, headers=HEADERS, timeout=60)
-    pdf_resp.raise_for_status()
-    pdf_data = pdf_resp.content
+    resp = requests.get(pdf_url, headers=HEADERS, timeout=60)
+    resp.raise_for_status()
 
     tmp = "temp.pdf"
     with open(tmp, "wb") as f:
-        f.write(pdf_data)
+        f.write(resp.content)
 
     schedule = parse_pdf(tmp)
     out = {
@@ -250,7 +274,6 @@ def main():
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
-    # Helpful debug
     print("OK:", OUTPUT_FILE, "| classes:", len(schedule))
 
 
