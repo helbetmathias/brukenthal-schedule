@@ -19,12 +19,13 @@ def get_latest_pdf_url():
     return None
 
 def clean_text(text):
-    return text.replace("\n", " ").strip() if text else ""
+    # Aggressive cleanup: remove newlines, multiple spaces
+    if not text: return ""
+    return re.sub(r'\s+', ' ', str(text)).strip()
 
 def parse_pdf(pdf_path):
     final_schedule = {}
     
-    # Mapping for Day Detection
     day_mapping = {
         "MONTAG": "Luni", "LUNI": "Luni",
         "DIENSTAG": "Marti", "MARTI": "Marti",
@@ -32,23 +33,14 @@ def parse_pdf(pdf_path):
         "DONNERSTAG": "Joi", "JOI": "Joi",
         "FREITAG": "Vineri", "VINERI": "Vineri"
     }
-    
-    # Valid class names to look for (Anchors)
-    valid_classes = ["9A", "9B", "9C", "10A", "11A", "12A"]
 
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages):
-            print(f"--- Processing Page {i+1} ---")
+            print(f"--- Page {i+1} ---")
             
-            # 1. FIND DAY (Search everywhere: Page text AND Table text)
+            # 1. FIND DAY
+            # Scan the raw text of the entire page
             page_text = (page.extract_text() or "").upper().replace("\n", " ")
-            table = page.extract_table()
-            
-            # If table exists, add its header text to search scope to be safe
-            if table:
-                for row in table[:3]: # Check first 3 rows
-                    page_text += " " + " ".join([str(c).upper() for c in row if c])
-
             current_day = None
             for key, val in day_mapping.items():
                 if key in page_text:
@@ -56,59 +48,53 @@ def parse_pdf(pdf_path):
                     break
             
             if not current_day:
-                print(f"   -> SKIP: No day found on Page {i+1}")
+                print(f"   -> SKIP: No day found in text.")
                 continue
             
-            print(f"   -> DAY FOUND: {current_day}")
+            print(f"   -> Day: {current_day}")
 
+            table = page.extract_table()
             if not table: continue
 
-            # 2. FIND ANCHOR ROW (The row that has '9A', '9B', etc.)
+            # 2. FIND HEADER ROW (The "9A, 9B..." row)
+            # Strategy: Look for a row that contains "10A" and "11A" 
+            # (We skip 9A/9B because the PDF messed them up with newlines)
             header_row_index = -1
             classes_row = []
 
             for r_idx, row in enumerate(table):
-                # Count how many valid class names are in this row
-                # We simply check if any cell contains "9A" or "10A" etc.
-                matches = 0
-                clean_row = [clean_text(str(c)).upper() for c in row]
+                # Flatten the row to a single string to search
+                row_str = " ".join([clean_text(c).upper() for c in row])
                 
-                for cell in clean_row:
-                    # Check if cell MATCHES a class name (e.g. "9A" or "9 A")
-                    if any(vc in cell for vc in valid_classes):
-                        matches += 1
-                
-                # If we found at least 3 class headers, this is the Header Row!
-                if matches >= 3:
+                # If this row mentions multiple classes, it's the header
+                if "10A" in row_str and "11A" in row_str:
                     header_row_index = r_idx
-                    classes_row = [clean_text(str(c)) for c in row]
-                    print(f"   -> HEADER FOUND at Row {r_idx}: {classes_row[:5]}...")
+                    classes_row = [clean_text(c) for c in row]
+                    print(f"   -> Header Found at Row {r_idx}")
                     break
             
             if header_row_index == -1:
-                print("   -> SKIP: Could not find class headers (9A, 9B...) in table.")
+                print("   -> SKIP: Header row (10A, 11A...) not found.")
                 continue
 
-            # 3. PARSE DATA (Start from the row AFTER the header)
+            # 3. PARSE DATA
             for row in table[header_row_index + 1:]:
                 if len(row) < 2: continue
                 
                 time_slot = clean_text(row[0])
-                if len(time_slot) < 3: continue # Skip empty time slots
+                if len(time_slot) < 3: continue 
                 
-                # Iterate columns based on the Header Row we found
                 for col_index in range(1, len(row)):
                     if col_index >= len(classes_row): break
                     
-                    class_name = classes_row[col_index] # Get class from Anchor Row
+                    class_name = classes_row[col_index]
                     subject = clean_text(row[col_index])
                     
-                    # Cleanup
-                    class_name = class_name.replace("\n", "").strip()
-                    if len(class_name) > 6 or len(class_name) < 2: continue # garbage check
+                    # Cleanup class name (remove garbage like "9A\n9B")
+                    class_name = class_name.split(" ")[0] # Take first word if split
+                    if len(class_name) > 5 or len(class_name) < 2: continue
                     if not subject: continue
 
-                    # Save
                     if class_name not in final_schedule: final_schedule[class_name] = {}
                     if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
                     
@@ -119,28 +105,25 @@ def parse_pdf(pdf_path):
     return final_schedule
 
 def main():
-    print("Starting...")
     pdf_url = get_latest_pdf_url()
     if not pdf_url: return
-
-    print(f"Downloading {pdf_url}...")
+    
+    print(f"Downloading {pdf_url}")
     pdf_data = requests.get(pdf_url, headers=HEADERS).content
     with open("temp.pdf", "wb") as f: f.write(pdf_data)
         
     new_schedule = parse_pdf("temp.pdf")
     
-    if not new_schedule: 
-        print("Error: Empty schedule.")
-        return
+    if not new_schedule: return
 
-    print("Saving JSON...")
+    # Always save
     final_json = {
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "schedule": new_schedule
     }
     with open(OUTPUT_FILE, "w", encoding='utf-8') as f:
         json.dump(final_json, f, ensure_ascii=False, indent=2)
-    print("Success.")
+    print("Success")
 
 if __name__ == "__main__":
     main()
