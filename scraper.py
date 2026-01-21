@@ -10,8 +10,9 @@ URL = "https://brukenthal.ro/"
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 OUTPUT_FILE = "timetable.json"
 
-# Ordinea claselor
-ORDERED_CLASSES = [
+# Ordinea exactă a coloanelor din tabel
+COLUMNS_ORDER = [
+    "Time", 
     "9A", "9B", "9C", "9D", 
     "10A", "10B", "10C", "10D", 
     "11A", "11B", "11C", "11D", 
@@ -19,7 +20,7 @@ ORDERED_CLASSES = [
 ]
 
 # Mapare Zile
-DAY_HEADERS = {
+DAY_MARKERS = {
     "MONTAG": "Luni",
     "DIENSTAG": "Marti",
     "MITTWOCH": "Miercuri",
@@ -35,9 +36,13 @@ def get_latest_pdf_url():
     except Exception as e: print(f"Error finding PDF: {e}")
     return None
 
+def clean_text(text):
+    if not text: return ""
+    return text.replace('\n', ' ').strip()
+
 def is_time_slot(text):
-    # STRICT: Doar formatul 7:20 sau 12:00 (cu două puncte). 
-    # Respinge 19.01 (cu punct).
+    # Căutăm doar formatul de oră valid (ex: 7:20, 8:00)
+    # Excludem datele calendaristice (19.01) care au punct
     if not text: return False
     return bool(re.search(r'^\d{1,2}:\d{2}', str(text).strip()))
 
@@ -45,121 +50,100 @@ def parse_pdf(pdf_path):
     final_schedule = {}
 
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            # Extragem cuvintele
-            words = page.extract_words(x_tolerance=2, y_tolerance=2)
+        # Presupunem că totul este pe Pagina 1 (conform imaginii tale)
+        # Dacă sunt mai multe, le iterăm, dar ne concentrăm pe structura verticală
+        page = pdf.pages[0]
+        width = page.width
+        height = page.height
+
+        # 1. GĂSIM POZIȚIILE ZILELOR (Y-coordinates)
+        words = page.extract_words(x_tolerance=2, y_tolerance=2)
+        day_zones = []
+        
+        for w in words:
+            txt_upper = w['text'].upper()
+            for de_key, ro_val in DAY_MARKERS.items():
+                if de_key in txt_upper:
+                    # Am găsit un titlu de zi. Salvăm poziția de sus (top)
+                    day_zones.append({"day": ro_val, "top": w['top']})
+                    break
+        
+        # Le sortăm de sus în jos
+        day_zones.sort(key=lambda x: x['top'])
+
+        if not day_zones:
+            print("Eroare: Nu am găsit zilele pe pagină.")
+            return {}
+
+        # 2. PROCESĂM FIECARE ZI PRIN DECUPARE (CROP)
+        for i, zone in enumerate(day_zones):
+            day_name = zone['day']
+            y_start = zone['top']
+            # Ziua se termină unde începe următoarea, sau la finalul paginii
+            y_end = day_zones[i+1]['top'] if i+1 < len(day_zones) else height
+
+            print(f"--- Procesez {day_name} (Y: {y_start:.0f} - {y_end:.0f}) ---")
+
+            # Decupăm zona respectivă din pagină
+            # Bounding box: (x0, top, x1, bottom)
+            try:
+                cropped_page = page.crop((0, y_start, width, y_end))
+            except ValueError:
+                continue # Skip if dimensions invalid
+
+            # 3. EXTRAGEM TABELUL DIN ZONA DECUPATĂ
+            # Folosim setări care favorizează liniile vizibile
+            table_settings = {
+                "vertical_strategy": "lines", 
+                "horizontal_strategy": "lines",
+                "intersection_y_tolerance": 5,
+                "intersection_x_tolerance": 5,
+                "snap_tolerance": 3
+            }
             
-            # 1. GĂSIRE ZONE ZILE (Slicing Vertical)
-            day_zones = []
-            for w in words:
-                text_upper = w['text'].upper()
-                for de_key, ro_val in DAY_HEADERS.items():
-                    if de_key in text_upper:
-                        day_zones.append({"day": ro_val, "top": w['top']})
-                        break
-            day_zones.sort(key=lambda x: x['top'])
+            tables = cropped_page.extract_tables(table_settings)
             
-            if not day_zones: continue
+            # Dacă nu găsește tabele pe bază de linii, încercăm fallback pe text
+            if not tables:
+                table_settings["vertical_strategy"] = "text"
+                table_settings["horizontal_strategy"] = "text"
+                tables = cropped_page.extract_tables(table_settings)
 
-            # Procesăm fiecare zonă de zi
-            for i, zone in enumerate(day_zones):
-                current_day = zone['day']
-                zone_top = zone['top']
-                zone_bottom = day_zones[i+1]['top'] if i+1 < len(day_zones) else 9999
-                
-                # Filtrăm cuvintele pentru ziua curentă
-                day_words = [w for w in words if zone_top <= w['top'] < zone_bottom]
-                if not day_words: continue
+            for table in tables:
+                for row in table:
+                    # Curățăm rândul
+                    clean_row = [clean_text(cell) for cell in row]
+                    
+                    # Verificăm dacă rândul e valid (începe cu oră)
+                    # Uneori extract_table returnează rânduri goale sau headere
+                    if not clean_row or len(clean_row) < 2: continue
+                    
+                    time_slot = clean_row[0]
+                    if not is_time_slot(time_slot): continue
 
-                # 2. DETECTARE RÂNDURI (ORE)
-                time_rows = []
-                for w in day_words:
-                    if is_time_slot(w['text']):
-                        # Verificăm să nu fie duplicat (același rând vizual)
-                        is_duplicate = False
-                        for tr in time_rows:
-                            if abs(tr['top'] - w['top']) < 10:
-                                is_duplicate = True
-                                break
-                        if not is_duplicate:
-                            time_rows.append(w)
-                
-                time_rows.sort(key=lambda x: x['top'])
-
-                # 3. DETECTARE COLOANE (CLASE)
-                # Căutăm headerele (9A, 9B...) pentru a stabili grila X
-                header_words = [w for w in day_words if w['text'] in ORDERED_CLASSES]
-                header_words.sort(key=lambda w: w['x0'])
-                
-                col_map = []
-                if len(header_words) >= 5:
-                    for k in range(len(header_words)):
-                        curr = header_words[k]
-                        cls_name = curr['text']
+                    # 4. MAPĂM DATELE
+                    # Coloana 0 e Ora. Coloanele 1..16 sunt Clasele.
+                    for col_idx, subject in enumerate(clean_row[1:], start=1):
+                        if col_idx >= len(COLUMNS_ORDER): break
                         
-                        # Calculăm granițele (mijlocul distanței dintre coloane)
-                        # Start: mijlocul dintre clasa anterioară și cea curentă
-                        if k == 0:
-                            start_x = curr['x0'] - 20
-                        else:
-                            start_x = (header_words[k-1]['x1'] + curr['x0']) / 2
+                        class_name = COLUMNS_ORDER[col_idx]
                         
-                        # End: mijlocul dintre clasa curentă și cea următoare
-                        if k == len(header_words) - 1:
-                            end_x = curr['x1'] + 20
-                        else:
-                            end_x = (curr['x1'] + header_words[k+1]['x0']) / 2
+                        if len(subject) < 2: continue # Ignorăm celule goale
+                        if "9A" in subject: continue # Ignorăm rândul cu numele claselor
+
+                        # Salvare
+                        if class_name not in final_schedule: final_schedule[class_name] = {}
+                        if day_name not in final_schedule[class_name]: final_schedule[class_name][day_name] = []
                         
-                        col_map.append({"class": cls_name, "min": start_x, "max": end_x})
-                else:
-                    # Fallback A4 Landscape
-                    curr_x = 55
-                    width = 47.5
-                    for cls in ORDERED_CLASSES:
-                        col_map.append({"class": cls, "min": curr_x, "max": curr_x + width})
-                        curr_x += width
-
-                # 4. ALOCARE (GRID MATCHING)
-                for w in day_words:
-                    text = w['text']
-                    if is_time_slot(text) or text in ORDERED_CLASSES or len(text) < 2: continue
-                    if "MONTAG" in text.upper() or "LUNI" in text.upper(): continue
-
-                    # Găsim rândul (Ora) - Verificăm dacă cuvântul e pe aceeași linie cu ora
-                    found_time = None
-                    word_mid_y = (w['top'] + w['bottom']) / 2
-                    
-                    for tr in time_rows:
-                        row_mid_y = (tr['top'] + tr['bottom']) / 2
-                        # Toleranță verticală mai mare (15px) pentru a prinde și textele ușor decalate
-                        if abs(word_mid_y - row_mid_y) < 15:
-                            found_time = tr['text']
-                            break
-                    
-                    if not found_time: continue
-
-                    # Găsim coloana (Clasa)
-                    word_mid_x = (w['x0'] + w['x1']) / 2
-                    found_class = None
-                    for col in col_map:
-                        if col['min'] <= word_mid_x < col['max']:
-                            found_class = col['class']
-                            break
-                    
-                    if not found_class: continue
-
-                    # Salvare
-                    if found_class not in final_schedule: final_schedule[found_class] = {}
-                    if current_day not in final_schedule[found_class]: final_schedule[found_class][current_day] = []
-                    
-                    entry = f"{found_time} | {text}"
-                    if entry not in final_schedule[found_class][current_day]:
-                        final_schedule[found_class][current_day].append(entry)
+                        entry = f"{time_slot} | {subject}"
+                        
+                        if entry not in final_schedule[class_name][day_name]:
+                            final_schedule[class_name][day_name].append(entry)
 
     return final_schedule
 
 def main():
-    print("Starting Scraper...")
+    print("Starting...")
     pdf_url = get_latest_pdf_url()
     if not pdf_url: return
     
@@ -178,7 +162,7 @@ def main():
     }
     with open(OUTPUT_FILE, "w", encoding='utf-8') as f:
         json.dump(final_json, f, ensure_ascii=False, indent=2)
-    print("Done.")
+    print("Success.")
 
 if __name__ == "__main__":
     main()
