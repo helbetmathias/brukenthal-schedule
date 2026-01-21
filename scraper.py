@@ -10,16 +10,14 @@ URL = "https://brukenthal.ro/"
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 OUTPUT_FILE = "timetable.json"
 
-# Ordinea exactă a coloanelor din tabel
-COLUMNS_ORDER = [
-    "Time", 
+# Ordinea coloanelor (fără Time, care e prima)
+CLASS_HEADERS = [
     "9A", "9B", "9C", "9D", 
     "10A", "10B", "10C", "10D", 
     "11A", "11B", "11C", "11D", 
     "12A", "12B", "12C", "12D"
 ]
 
-# Mapare Zile
 DAY_MARKERS = {
     "MONTAG": "Luni",
     "DIENSTAG": "Marti",
@@ -38,11 +36,11 @@ def get_latest_pdf_url():
 
 def clean_text(text):
     if not text: return ""
+    # Eliminăm rândurile noi din celulă pentru a nu avea surprize
     return text.replace('\n', ' ').strip()
 
 def is_time_slot(text):
-    # Căutăm doar formatul de oră valid (ex: 7:20, 8:00)
-    # Excludem datele calendaristice (19.01) care au punct
+    # Validăm strict formatul orar (ex: 7:20, 12:00)
     if not text: return False
     return bool(re.search(r'^\d{1,2}:\d{2}', str(text).strip()))
 
@@ -50,95 +48,111 @@ def parse_pdf(pdf_path):
     final_schedule = {}
 
     with pdfplumber.open(pdf_path) as pdf:
-        # Presupunem că totul este pe Pagina 1 (conform imaginii tale)
-        # Dacă sunt mai multe, le iterăm, dar ne concentrăm pe structura verticală
-        page = pdf.pages[0]
+        page = pdf.pages[0] # Lucrăm pe prima pagină
         width = page.width
-        height = page.height
-
-        # 1. GĂSIM POZIȚIILE ZILELOR (Y-coordinates)
-        words = page.extract_words(x_tolerance=2, y_tolerance=2)
-        day_zones = []
         
+        # 1. GĂSIM HEADER-ELE CLASELOR PENTRU A CALCULA LINIILE VERTICALE
+        # Căutăm cuvintele "9A", "9B"... pentru a ști unde sunt coloanele
+        words = page.extract_words()
+        header_words = [w for w in words if w['text'] in CLASS_HEADERS]
+        header_words.sort(key=lambda w: w['x0'])
+
+        # Calculăm liniile verticale (x_cuts)
+        # O linie verticală trebuie să fie exact la mijlocul distanței dintre "9A" și "9B"
+        vertical_lines = []
+        
+        # Adăugăm linia de start (înainte de Time)
+        if header_words:
+            # Estimăm începutul tabelului (stânga de 9A minus o marjă pt Time)
+            vertical_lines.append(max(0, header_words[0]['x0'] - 50))
+            
+            # Adăugăm liniile dintre clase
+            for i in range(len(header_words) - 1):
+                curr = header_words[i]
+                next_w = header_words[i+1]
+                # Punctul de mijloc
+                mid_point = (curr['x1'] + next_w['x0']) / 2
+                vertical_lines.append(mid_point)
+            
+            # Adăugăm linia de final (dreapta de 12D)
+            vertical_lines.append(header_words[-1]['x1'] + 10)
+        else:
+            print("Nu am găsit header-ele claselor. Folosesc fallback.")
+            # Fallback (împărțire egală a paginii)
+            vertical_lines = [50 + i*47 for i in range(18)]
+
+        # 2. GĂSIM ZONELE ZILELOR (Slicing Vertical)
+        day_zones = []
         for w in words:
             txt_upper = w['text'].upper()
             for de_key, ro_val in DAY_MARKERS.items():
                 if de_key in txt_upper:
-                    # Am găsit un titlu de zi. Salvăm poziția de sus (top)
                     day_zones.append({"day": ro_val, "top": w['top']})
                     break
-        
-        # Le sortăm de sus în jos
         day_zones.sort(key=lambda x: x['top'])
 
-        if not day_zones:
-            print("Eroare: Nu am găsit zilele pe pagină.")
-            return {}
-
-        # 2. PROCESĂM FIECARE ZI PRIN DECUPARE (CROP)
+        # 3. EXTRAGEM TABELELE FOLOSIND GRID-UL EXPLICIT
         for i, zone in enumerate(day_zones):
             day_name = zone['day']
             y_start = zone['top']
-            # Ziua se termină unde începe următoarea, sau la finalul paginii
-            y_end = day_zones[i+1]['top'] if i+1 < len(day_zones) else height
+            y_end = day_zones[i+1]['top'] if i+1 < len(day_zones) else page.height
 
-            print(f"--- Procesez {day_name} (Y: {y_start:.0f} - {y_end:.0f}) ---")
+            print(f"--- Procesez {day_name} ---")
 
-            # Decupăm zona respectivă din pagină
-            # Bounding box: (x0, top, x1, bottom)
-            try:
-                cropped_page = page.crop((0, y_start, width, y_end))
-            except ValueError:
-                continue # Skip if dimensions invalid
+            # Decupăm zona zilei
+            cropped = page.crop((0, y_start, width, y_end))
 
-            # 3. EXTRAGEM TABELUL DIN ZONA DECUPATĂ
-            # Folosim setări care favorizează liniile vizibile
+            # EXTRAGEM TABELUL CU LINII VERTICALE FORȚATE
+            # Asta obligă pdfplumber să taie între "InfLb1-Dr" și "Eng-Su"
             table_settings = {
-                "vertical_strategy": "lines", 
-                "horizontal_strategy": "lines",
-                "intersection_y_tolerance": 5,
-                "intersection_x_tolerance": 5,
+                "vertical_strategy": "explicit",
+                "explicit_vertical_lines": vertical_lines,
+                "horizontal_strategy": "text", # Lăsăm textul să definească rândurile
                 "snap_tolerance": 3
             }
-            
-            tables = cropped_page.extract_tables(table_settings)
-            
-            # Dacă nu găsește tabele pe bază de linii, încercăm fallback pe text
-            if not tables:
-                table_settings["vertical_strategy"] = "text"
-                table_settings["horizontal_strategy"] = "text"
-                tables = cropped_page.extract_tables(table_settings)
 
-            for table in tables:
-                for row in table:
-                    # Curățăm rândul
-                    clean_row = [clean_text(cell) for cell in row]
-                    
-                    # Verificăm dacă rândul e valid (începe cu oră)
-                    # Uneori extract_table returnează rânduri goale sau headere
-                    if not clean_row or len(clean_row) < 2: continue
-                    
+            try:
+                table = cropped.extract_table(table_settings)
+            except Exception as e:
+                print(f"Eroare la extragere tabel: {e}")
+                continue
+
+            if not table: continue
+
+            # Parsăm rândurile tabelului extras
+            for row in table:
+                # Curățăm celulele
+                clean_row = [clean_text(cell) for cell in row]
+                
+                # Verificăm dacă rândul începe cu o oră validă
+                # Uneori prima coloană e goală sau conține gunoi, verificăm primele 2
+                time_slot = None
+                if clean_row and is_time_slot(clean_row[0]):
                     time_slot = clean_row[0]
-                    if not is_time_slot(time_slot): continue
+                
+                if not time_slot: continue
 
-                    # 4. MAPĂM DATELE
-                    # Coloana 0 e Ora. Coloanele 1..16 sunt Clasele.
-                    for col_idx, subject in enumerate(clean_row[1:], start=1):
-                        if col_idx >= len(COLUMNS_ORDER): break
-                        
-                        class_name = COLUMNS_ORDER[col_idx]
-                        
-                        if len(subject) < 2: continue # Ignorăm celule goale
-                        if "9A" in subject: continue # Ignorăm rândul cu numele claselor
+                # Mapăm materiile la clase
+                # clean_row[0] = Time
+                # clean_row[1] = 9A, clean_row[2] = 9B ...
+                
+                for col_idx, subject in enumerate(clean_row[1:]):
+                    if col_idx >= len(CLASS_HEADERS): break
+                    
+                    class_name = CLASS_HEADERS[col_idx]
+                    
+                    # Ignorăm celulele goale sau repetarea numelui clasei
+                    if len(subject) < 2: continue
+                    if subject in CLASS_HEADERS: continue 
 
-                        # Salvare
-                        if class_name not in final_schedule: final_schedule[class_name] = {}
-                        if day_name not in final_schedule[class_name]: final_schedule[class_name][day_name] = []
-                        
-                        entry = f"{time_slot} | {subject}"
-                        
-                        if entry not in final_schedule[class_name][day_name]:
-                            final_schedule[class_name][day_name].append(entry)
+                    # Salvare
+                    if class_name not in final_schedule: final_schedule[class_name] = {}
+                    if day_name not in final_schedule[class_name]: final_schedule[class_name][day_name] = []
+                    
+                    entry = f"{time_slot} | {subject}"
+                    
+                    if entry not in final_schedule[class_name][day_name]:
+                        final_schedule[class_name][day_name].append(entry)
 
     return final_schedule
 
@@ -153,7 +167,7 @@ def main():
     new_schedule = parse_pdf("temp.pdf")
     
     if not new_schedule: 
-        print("Empty schedule.")
+        print("Empty.")
         return
 
     final_json = {
