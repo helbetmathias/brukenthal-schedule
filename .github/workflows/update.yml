@@ -4,18 +4,30 @@ on:
     - cron: '0 * * * *' # Run every hour
   workflow_dispatch: # Allow manual run button
 
+permissions:
+  contents: write # This explicitly grants write permission to the token
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      
       - uses: actions/setup-python@v4
-        with: { python-version: '3.9' }
+        with: 
+          python-version: '3.9'
+          
       - run: pip install -r requirements.txt
+      
       - run: python scraper.py
-      - run: |
+      
+      - name: Commit and Push
+        run: |
           git config --global user.name 'Updater'
           git config --global user.email 'updater@bot.com'
           git add timetable.json
-          git commit -m "Update schedule" || exit 0
+          # Commit if there are changes
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update schedule"
+          # Pull latest changes to fix 'fetch first' error, then push
+          git pull --rebase origin main
           git push
