@@ -2,6 +2,8 @@ import pdfplumber
 import requests
 import json
 import re
+import hashlib
+import os
 from datetime import datetime
 from urllib.parse import urljoin
 
@@ -35,6 +37,12 @@ def get_latest_pdf_url():
         return None
     return urljoin(URL, m.group(1))
 
+def file_hash(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 def cluster_positions(values, tol=1.5):
     values = sorted(values)
@@ -261,16 +269,41 @@ def main():
     with open(tmp, "wb") as f:
         f.write(resp.content)
 
+    new_pdf_hash = file_hash(tmp)
+
+    # Load old JSON if exists
+    old_data = None
+    old_hash = None
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                old_data = json.load(f)
+                old_hash = old_data.get("pdf_hash")
+        except Exception:
+            pass
+
+    # If PDF didn't change → do nothing
+    if old_hash == new_pdf_hash:
+        print("PDF unchanged, skipping update.")
+        return
+
+    # Parse new schedule
     schedule = parse_pdf(tmp)
+
     out = {
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "pdf_hash": new_pdf_hash,
+        "source_pdf": pdf_url,
         "schedule": schedule
     }
+
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
-    print("OK:", OUTPUT_FILE, "| classes:", len(schedule))
-
-
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    print("Updated timetable.json | classes:", len(schedule))
 if __name__ == "__main__":
     main()
