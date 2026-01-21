@@ -2,12 +2,18 @@ import pdfplumber
 import requests
 import json
 import re
+import hashlib
+import os
 from datetime import datetime
 from urllib.parse import urljoin
 
 URL = "https://brukenthal.ro/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 OUTPUT_FILE = "timetable.json"
+
+# Cloudflare Worker notify endpoint
+WORKER_NOTIFY_URL = "https://shrill-tooth-d37a.ronzigamespro2007.workers.dev/notify"
+WORKER_AUTH_KEY = os.getenv("WORKER_AUTH_KEY", "")  # set in GitHub Actions secrets
 
 COLUMNS_ORDER = [
     "Time",
@@ -34,6 +40,14 @@ def get_latest_pdf_url():
     if not m:
         return None
     return urljoin(URL, m.group(1))
+
+
+def file_hash(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def cluster_positions(values, tol=1.5):
@@ -68,7 +82,6 @@ def get_global_x_bounds(page):
     xs = [e["x0"] for e in verts]
     x_bounds = sorted(cluster_positions(xs, tol=1.5))
 
-    # Expect 18 boundaries (17 columns => 18 borders). If too many, keep widest span.
     if len(x_bounds) > 18:
         best = None
         for i in range(0, len(x_bounds) - 17):
@@ -82,7 +95,6 @@ def get_global_x_bounds(page):
 
 
 def get_y_bounds_for_crop(page_crop):
-    # IMPORTANT: use "top" (same coord system as chars/words), not y0/y1
     horiz = [e for e in page_crop.edges if e["orientation"] == "h"]
     ys = [e["top"] for e in horiz]
     y_bounds = sorted(cluster_positions(ys, tol=1.5))
@@ -98,15 +110,11 @@ def normalize_subject(subj: str) -> str:
     subj = (subj or "").strip()
     subj = re.sub(r"\s+", " ", subj)
 
-    # Drop pure 1-letter junk (typical border bleed)
     if re.fullmatch(r"[a-z]", subj):
         return ""
 
-    # Remove leading single lowercase junk letter if followed by a real token
-    # Examples: "rEng-Su" -> "Eng-Su", "aRelort-M" -> "Relort-M"
     subj = re.sub(r"^[a-z](?=[A-Z0-9ĂÂÎȘȚ])", "", subj).strip()
 
-    # If still just noise
     if len(subj) < 2:
         return ""
     return subj
@@ -117,8 +125,8 @@ def cell_text_from_chars(
     x0, x1, y0, y1,
     y_tol=1.2,
     x_gap=1.0,
-    x_pad_left=1.4,   # keep strong on left to prevent bleed from previous column
-    x_pad_right=0.35, # small on right so you don't cut last letter
+    x_pad_left=1.4,
+    x_pad_right=0.35,
     y_pad=0.2
 ):
     sx0 = x0 + x_pad_left
@@ -188,7 +196,6 @@ def parse_day_block(day_crop, x_bounds):
             cx0, cx1 = x_bounds[c], x_bounds[c + 1]
             grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1)
 
-    # header row = row containing most class labels
     header_r = None
     best_score = -1
     for r in range(min(10, n_rows)):
@@ -248,6 +255,22 @@ def parse_pdf(pdf_path):
     return final
 
 
+def notify_worker(title, body, data):
+    if not WORKER_AUTH_KEY:
+        print("No WORKER_AUTH_KEY set, skipping notification.")
+        return
+
+    try:
+        resp = requests.post(
+            f"{WORKER_NOTIFY_URL}?key={WORKER_AUTH_KEY}",
+            json={"title": title, "body": body, "data": data},
+            timeout=30,
+        )
+        print("Worker notify:", resp.status_code, resp.text[:200])
+    except Exception as e:
+        print("Worker notify failed:", repr(e))
+
+
 def main():
     pdf_url = get_latest_pdf_url()
     if not pdf_url:
@@ -261,15 +284,50 @@ def main():
     with open(tmp, "wb") as f:
         f.write(resp.content)
 
+    new_hash = file_hash(tmp)
+
+    old_hash = None
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                old = json.load(f)
+                old_hash = old.get("pdf_hash")
+        except Exception:
+            pass
+
+    # Only update when PDF actually changed
+    if old_hash == new_hash:
+        print("PDF unchanged, skipping update.")
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return
+
     schedule = parse_pdf(tmp)
+
     out = {
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "schedule": schedule
+        "pdf_hash": new_hash,
+        "source_pdf": pdf_url,
+        "schedule": schedule,
     }
+
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
-    print("OK:", OUTPUT_FILE, "| classes:", len(schedule))
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+
+    print("Updated timetable.json | classes:", len(schedule))
+
+    notify_worker(
+        title="Schedule updated",
+        body="A new timetable PDF was detected. Open the app to refresh.",
+        data={"updated_at": out["updated_at"], "pdf_hash": out["pdf_hash"], "source_pdf": out["source_pdf"]},
+    )
 
 
 if __name__ == "__main__":
