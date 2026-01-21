@@ -1,7 +1,8 @@
 import requests
-import pdfplumber
+import tabula
 import json
 import re
+import pandas as pd
 import os
 from datetime import datetime
 
@@ -10,22 +11,18 @@ URL = "https://brukenthal.ro/"
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 OUTPUT_FILE = "timetable.json"
 
-# Fixed Class Order (Columns 1 to 16)
-ORDERED_CLASSES = [
+# The column order is FIXED in the PDF
+EXPECTED_COLUMNS = [
+    "Time", 
     "9A", "9B", "9C", "9D", 
     "10A", "10B", "10C", "10D", 
     "11A", "11B", "11C", "11D", 
     "12A", "12B", "12C", "12D"
 ]
 
-# HARDCODED DAYS BY PAGE INDEX (Foolproof)
-PAGE_TO_DAY = {
-    0: "Luni",
-    1: "Marti",
-    2: "Miercuri",
-    3: "Joi",
-    4: "Vineri"
-}
+# HARDCODED DAYS (Index 0 = Page 1 = Luni)
+# This prevents the script from reading "Luni" on the Tuesday page footer.
+PAGE_TO_DAY = ["Luni", "Marti", "Miercuri", "Joi", "Vineri"]
 
 def get_latest_pdf_url():
     try:
@@ -35,83 +32,75 @@ def get_latest_pdf_url():
     except Exception as e: print(f"Error finding PDF: {e}")
     return None
 
+def normalize_text(text):
+    if pd.isna(text): return ""
+    return str(text).replace("\r", " ").replace("\n", " ").strip()
+
 def is_time_slot(text):
-    # Strict check: Must look like "7:20" or "12:00"
+    # Checks for "7:20", "8:00" start
     if not text: return False
-    return bool(re.search(r'^\d{1,2}[:.]\d{2}', str(text).strip()))
+    return bool(re.match(r'^\d{1,2}[:.]\d{2}', text))
 
-def parse_pdf(pdf_path):
+def parse_pdf_with_tabula(pdf_path):
     final_schedule = {}
+    
+    print("Reading PDF pages...")
+    try:
+        # stream=True is ESSENTIAL for this PDF to split the columns correctly
+        dfs = tabula.read_pdf(pdf_path, pages='all', stream=True, guess=False, pandas_options={'header': None})
+    except Exception as e:
+        print(f"Tabula Error: {e}")
+        return {}
 
-    with pdfplumber.open(pdf_path) as pdf:
-        # Process first 5 pages only (Mon-Fri)
-        for page_idx in range(min(5, len(pdf.pages))):
-            page = pdf.pages[page_idx]
-            current_day = PAGE_TO_DAY.get(page_idx, "Unknown")
+    # Iterate through pages (DataFrames)
+    for i, df in enumerate(dfs):
+        if i >= 5: break # Only process first 5 pages (Mon-Fri)
+        
+        # 1. FORCE THE DAY BASED ON PAGE NUMBER
+        current_day = PAGE_TO_DAY[i]
+        print(f"--- Processing Page {i+1} -> Forcing Day: {current_day} ---")
+
+        # 2. PARSE ROWS
+        for index, row in df.iterrows():
+            # Convert row to simple list of strings
+            row_data = [normalize_text(x) for x in row.tolist()]
             
-            print(f"--- Processing Page {page_idx + 1} -> {current_day} ---")
-
-            # EXTRACT WORDS WITH COORDINATES
-            # This ignores broken lines and uses pure geometry
-            words = page.extract_words(x_tolerance=2, y_tolerance=2)
+            # Find which column holds the Time (usually col 0, but sometimes shifts to 1)
+            time_slot = None
+            start_col_idx = -1
             
-            # Group words by Y-position (Rows)
-            rows = {}
-            for w in words:
-                # Snap Y to nearest 10px to handle wavy text lines
-                y = round(w['top'] / 10) * 10 
-                if y not in rows: rows[y] = []
-                rows[y].append(w)
+            for idx, cell in enumerate(row_data[:3]): # Check first 3 cols
+                if is_time_slot(cell):
+                    time_slot = cell
+                    start_col_idx = idx
+                    break
+            
+            if not time_slot: continue
 
-            # PROCESS ROWS
-            for y in sorted(rows.keys()):
-                # Sort words in this row from Left to Right (X position)
-                row_words = sorted(rows[y], key=lambda w: w['x0'])
+            # 3. MAP COLUMNS TO CLASSES
+            # The columns AFTER the time slot correspond to 9A, 9B, etc.
+            current_data_idx = start_col_idx + 1
+            
+            for class_name in EXPECTED_COLUMNS[1:]: # Skip "Time"
+                if current_data_idx >= len(row_data): break
                 
-                if not row_words: continue
-
-                # CHECK 1: Does row start with a Time?
-                first_text = row_words[0]['text']
-                if not is_time_slot(first_text):
-                    # If not a time (e.g. "LUNI 19.01" or "9A 9B"), SKIP ROW
-                    continue
+                subject = row_data[current_data_idx]
+                current_data_idx += 1
                 
-                time_slot = first_text
+                # Filter out garbage
+                if len(subject) < 2 or "nan" in subject.lower(): continue
+                # Filter out headers that look like "9A 9B"
+                if "9A" in subject and "9B" in subject: continue 
 
-                # CHECK 2: Map remaining words to Classes based on X-Position
-                # A4 Landscape Metrics:
-                # Time column ends approx at X=55
-                # Classes start at X=55 and go across the page
-                # Each class column is approx 47.5 pixels wide
+                # Initialize keys
+                if class_name not in final_schedule: final_schedule[class_name] = {}
+                if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
                 
-                COL_START_X = 55
-                COL_WIDTH = 47.5 
-
-                for word in row_words[1:]: # Skip the time word
-                    text = word['text']
-                    x_pos = word['x0']
-                    
-                    # Calculate bucket: (Word_X - Start_X) / Column_Width
-                    col_index = int((x_pos - COL_START_X) / COL_WIDTH)
-                    
-                    # Safety bounds
-                    if col_index < 0: continue
-                    if col_index >= len(ORDERED_CLASSES): continue
-                    
-                    class_name = ORDERED_CLASSES[col_index]
-                    
-                    # Clean up subject text
-                    if len(text) < 2: continue 
-                    
-                    # SAVE TO SCHEDULE
-                    if class_name not in final_schedule: final_schedule[class_name] = {}
-                    if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
-                    
-                    entry = f"{time_slot} | {text}"
-                    
-                    # Deduplicate
-                    if entry not in final_schedule[class_name][current_day]:
-                        final_schedule[class_name][current_day].append(entry)
+                entry = f"{time_slot} | {subject}"
+                
+                # Avoid duplicates
+                if entry not in final_schedule[class_name][current_day]:
+                    final_schedule[class_name][current_day].append(entry)
 
     return final_schedule
 
@@ -122,20 +111,21 @@ def main():
     print(f"Downloading {pdf_url}")
     pdf_data = requests.get(pdf_url, headers=HEADERS).content
     with open("temp.pdf", "wb") as f: f.write(pdf_data)
-        
-    new_schedule = parse_pdf("temp.pdf")
+    
+    new_schedule = parse_pdf_with_tabula("temp.pdf")
     
     if not new_schedule: 
-        print("Error: Parsed schedule is empty.")
+        print("Error: Schedule empty.")
         return
 
+    # SAVE
     final_json = {
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "schedule": new_schedule
     }
     with open(OUTPUT_FILE, "w", encoding='utf-8') as f:
         json.dump(final_json, f, ensure_ascii=False, indent=2)
-    print("Success.")
+    print("Success. JSON updated.")
 
 if __name__ == "__main__":
     main()
