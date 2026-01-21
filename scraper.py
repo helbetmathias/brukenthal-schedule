@@ -10,8 +10,7 @@ URL = "https://brukenthal.ro/"
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 OUTPUT_FILE = "timetable.json"
 
-# WE HARDCODE THE CLASSES because the PDF headers are broken.
-# We trust the column order is always the same.
+# The exact order of classes in the PDF columns
 ORDERED_CLASSES = [
     "9A", "9B", "9C", "9D", 
     "10A", "10B", "10C", "10D", 
@@ -32,9 +31,8 @@ def clean_text(text):
     return re.sub(r'\s+', ' ', str(text)).strip()
 
 def is_time_slot(text):
-    # Looks for "7:20", "8:00", etc.
-    if not text: return False
-    return bool(re.search(r'\d{1,2}[:.]\d{2}', text))
+    # Matches "7:20", "8:00", etc.
+    return bool(re.search(r'\d{1,2}[:.]\d{2}', str(text)))
 
 def parse_pdf(pdf_path):
     final_schedule = {}
@@ -51,7 +49,7 @@ def parse_pdf(pdf_path):
         for i, page in enumerate(pdf.pages):
             print(f"--- Page {i+1} ---")
 
-            # 1. FIND DAY (Scan full text)
+            # 1. FIND DAY
             page_text = (page.extract_text() or "").upper().replace("\n", " ")
             current_day = None
             for key, val in day_mapping.items():
@@ -65,51 +63,79 @@ def parse_pdf(pdf_path):
             
             print(f"   -> DAY: {current_day}")
 
-            # 2. EXTRACT TABLE WITH "TEXT" STRATEGY
-            # This is the magic fix. It ignores broken PDF lines and aligns by text whitespace.
-            settings = {
-                "vertical_strategy": "text",
-                "horizontal_strategy": "text",
-                "snap_tolerance": 5,
-            }
-            table = page.extract_table(settings)
+            # 2. EXTRACT WORDS (The "Atomic" Method)
+            # Instead of trusting table lines, we get every single word and its X-position.
+            words = page.extract_words()
+            
+            # We group words by their Y-position (Vertical Row)
+            # Tolerance=5 means words within 5 pixels height difference are on the "same line"
+            rows = {} 
+            for w in words:
+                y = round(w['top'] / 5) * 5 # Round to nearest 5 to group roughly aligned text
+                if y not in rows: rows[y] = []
+                rows[y].append(w)
 
-            if not table: 
-                print("   -> SKIP: No table structure found.")
-                continue
-
-            # 3. PARSE DATA (Blindly map columns to classes)
-            for row in table:
-                # We need at least a time column + some data
-                if len(row) < 2: continue
+            # 3. ANALYZE EACH ROW
+            sorted_y_keys = sorted(rows.keys())
+            
+            for y in sorted_y_keys:
+                row_words = sorted(rows[y], key=lambda w: w['x0']) # Sort by Left-to-Right
                 
-                # Check column 0 for Time
-                time_slot = clean_text(row[0])
-                if not is_time_slot(time_slot): continue
-                
-                # If we found a time, assume the next columns are our classes in order
-                # Col 0 = Time
-                # Col 1 = 9A
-                # Col 2 = 9B
-                # ...
-                for col_index in range(1, len(row)):
-                    # Stop if we run out of known classes
-                    class_idx = col_index - 1
-                    if class_idx >= len(ORDERED_CLASSES): break
-                    
-                    class_name = ORDERED_CLASSES[class_idx]
-                    subject = clean_text(row[col_index])
-                    
-                    if not subject: continue
-                    if len(subject) < 2: continue # Skip artifacts like "-"
+                # Check if the first word is a Time Slot
+                first_word_text = row_words[0]['text']
+                if not is_time_slot(first_word_text):
+                    continue
 
-                    # Save Data
+                time_slot = first_word_text
+                
+                # Now we need to figure out which column (Class) each subsequent word belongs to.
+                # The page width is roughly 840px (A4 Landscape).
+                # 16 Classes + 1 Time column = 17 columns.
+                # Width per column approx 50px.
+                
+                # We define approximate X-coordinates for each class column.
+                # NOTE: These values are estimated based on standard PDF layouts.
+                # If columns are misaligned, we might need to tweak 'start_x'
+                
+                # Start searching for subjects AFTER the time slot (approx x=50)
+                for word in row_words[1:]:
+                    text = word['text']
+                    x_pos = word['x0']
+                    
+                    # Estimate column index based on X position
+                    # Time is at 0-50.
+                    # 9A starts around 50.
+                    # 12D ends around 800.
+                    # Total width ~750px for 16 classes -> ~47px per class.
+                    
+                    offset_x = x_pos - 60 # Subtract Time column width
+                    if offset_x < 0: continue 
+
+                    col_index = int(offset_x // 47) # 47 is the "magic number" for column width
+                    
+                    if col_index >= len(ORDERED_CLASSES): continue
+                    
+                    class_name = ORDERED_CLASSES[col_index]
+                    
+                    # Basic cleanup
+                    if len(text) < 2: continue
+
+                    # SAVE DATA
                     if class_name not in final_schedule: final_schedule[class_name] = {}
                     if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
                     
-                    entry = f"{time_slot} | {subject}"
-                    # Remove duplicates
-                    if entry not in final_schedule[class_name][current_day]:
+                    # We might catch fragments. We append them.
+                    # Later, the app just shows the list.
+                    entry = f"{time_slot} | {text}"
+                    
+                    # Check if we already added this subject (to avoid duplicate fragments)
+                    already_exists = False
+                    for existing in final_schedule[class_name][current_day]:
+                        if entry in existing: 
+                            already_exists = True
+                            break
+                    
+                    if not already_exists:
                         final_schedule[class_name][current_day].append(entry)
 
     return final_schedule
