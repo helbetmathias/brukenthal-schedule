@@ -11,7 +11,7 @@ URL = "https://brukenthal.ro/"
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 OUTPUT_FILE = "timetable.json"
 
-# The fixed column structure (Time + 16 Classes)
+# Fixed Column Structure (Time + 16 Classes)
 EXPECTED_COLUMNS = [
     "Time", 
     "9A", "9B", "9C", "9D", 
@@ -33,61 +33,62 @@ def normalize_text(text):
     return str(text).replace("\r", " ").replace("\n", " ").strip()
 
 def is_time_slot(text):
-    # Checks for 7:20, 8:00, etc.
     if not text: return False
+    # Looks for "7:20" or "8:00" start
     return bool(re.match(r'^\d{1,2}[:.]\d{2}', text))
 
 def parse_pdf_with_tabula(pdf_path):
     final_schedule = {}
     
-    # 1. CONVERT PDF TO "EXCEL" (DataFrames)
-    # stream=True forces it to look at whitespace gaps to define columns
-    # lattice=False ignores the broken lines in the PDF
-    print("Converting PDF to DataFrames (Tabula)...")
+    # 1. READ PDF (Stream mode to handle broken lines)
+    print("Reading PDF with Tabula...")
     try:
-        dfs = tabula.read_pdf(pdf_path, pages='all', stream=True, multiple_tables=False)
+        # pages='all' returns a list of DataFrames (one per page usually)
+        dfs = tabula.read_pdf(pdf_path, pages='all', stream=True, guess=False)
     except Exception as e:
         print(f"Tabula Error: {e}")
         return {}
 
-    # German Day Names (Unique to each page)
+    # STRICT DAY MAPPING (GERMAN KEYS ONLY)
+    # We removed "LUNI", "MARTI" etc. to prevent false matches from the page footer.
     day_mapping = {
-        "MONTAG": "Luni", "DIENSTAG": "Marti", "MITTWOCH": "Miercuri", 
-        "DONNERSTAG": "Joi", "FREITAG": "Vineri"
+        "MONTAG": "Luni", 
+        "DIENSTAG": "Marti", 
+        "MITTWOCH": "Miercuri", 
+        "DONNERSTAG": "Joi", 
+        "FREITAG": "Vineri"
     }
 
     for i, df in enumerate(dfs):
-        print(f"--- Processing Sheet {i+1} ---")
+        print(f"--- Processing Table {i+1} ---")
         
-        # 2. FIND DAY
-        # We search the entire raw data of the sheet for the day name
-        df_str = df.to_string().upper()
+        # 2. DETECT DAY (Search full text of the table)
+        # We convert the whole table to a string to find the header "DIENSTAG" etc.
+        table_text = df.to_string().upper()
+        
         current_day = None
-        for german, romanian in day_mapping.items():
-            if german in df_str:
-                current_day = romanian
+        for german_key, romanian_val in day_mapping.items():
+            if german_key in table_text:
+                current_day = romanian_val
                 break
         
         if not current_day:
-            print("   -> SKIP: No day found in this sheet.")
+            print("   -> SKIP: No German day name found in this table.")
             continue
-        
-        print(f"   -> DAY: {current_day}")
+            
+        print(f"   -> DETECTED DAY: {current_day}")
 
-        # 3. CLEAN & MAP COLUMNS
-        # Tabula might produce headers like "Unnamed: 0". We assume the structure is fixed.
-        # We just grab the data row by row.
-        
+        # 3. PARSE ROWS
+        # We iterate row by row. If we find a time, we map the rest to classes.
         for index, row in df.iterrows():
-            # Convert row to a simple list of strings
+            # Convert row to list of strings
             row_data = [normalize_text(x) for x in row.tolist()]
             
-            # Filter: We only want rows that start with a Time Slot
-            # We check the first few columns in case 'Time' shifted slightly
+            # Find the Time Column
             time_slot = None
-            start_col_idx = 0
+            start_col_idx = -1
             
-            # Find which column holds the time (usually col 0 or 1)
+            # Check the first 3 columns for a time
             for idx, cell in enumerate(row_data[:3]):
                 if is_time_slot(cell):
                     time_slot = cell
@@ -96,24 +97,21 @@ def parse_pdf_with_tabula(pdf_path):
             
             if not time_slot: continue
 
-            # 4. READ CLASSES
-            # The columns AFTER the time slot correspond to our classes
-            # Time | 9A | 9B | 9C ...
+            # Map Columns to Classes
+            # The column AFTER the time slot is 9A, then 9B, etc.
+            current_data_idx = start_col_idx + 1
             
-            # Start reading subjects from the column after Time
-            current_col = start_col_idx + 1
-            
-            # Loop through our expected classes (9A, 9B...)
-            for class_name in EXPECTED_COLUMNS[1:]: # Skip "Time" in list
-                if current_col >= len(row_data): break
+            # Loop through 9A...12D
+            for class_name in EXPECTED_COLUMNS[1:]: 
+                if current_data_idx >= len(row_data): break
                 
-                subject = row_data[current_col]
-                current_col += 1
+                subject = row_data[current_data_idx]
+                current_data_idx += 1
                 
                 # Cleanup
                 if len(subject) < 2 or "nan" in subject.lower(): continue
                 
-                # Save Data
+                # Save
                 if class_name not in final_schedule: final_schedule[class_name] = {}
                 if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
                 
@@ -131,14 +129,12 @@ def main():
     pdf_data = requests.get(pdf_url, headers=HEADERS).content
     with open("temp.pdf", "wb") as f: f.write(pdf_data)
     
-    # Process
     new_schedule = parse_pdf_with_tabula("temp.pdf")
     
     if not new_schedule: 
         print("Error: Schedule empty.")
         return
 
-    # Save
     final_json = {
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "schedule": new_schedule
