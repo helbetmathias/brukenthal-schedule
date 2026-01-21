@@ -1,8 +1,7 @@
 import requests
-import tabula
+import pdfplumber
 import json
 import re
-import pandas as pd
 import os
 from datetime import datetime
 
@@ -11,14 +10,22 @@ URL = "https://brukenthal.ro/"
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 OUTPUT_FILE = "timetable.json"
 
-# Fixed Column Structure (Time + 16 Classes)
-EXPECTED_COLUMNS = [
-    "Time", 
+# Fixed Class Order (Columns 1 to 16)
+ORDERED_CLASSES = [
     "9A", "9B", "9C", "9D", 
     "10A", "10B", "10C", "10D", 
     "11A", "11B", "11C", "11D", 
     "12A", "12B", "12C", "12D"
 ]
+
+# HARDCODED DAYS BY PAGE INDEX (Foolproof)
+PAGE_TO_DAY = {
+    0: "Luni",
+    1: "Marti",
+    2: "Miercuri",
+    3: "Joi",
+    4: "Vineri"
+}
 
 def get_latest_pdf_url():
     try:
@@ -28,96 +35,83 @@ def get_latest_pdf_url():
     except Exception as e: print(f"Error finding PDF: {e}")
     return None
 
-def normalize_text(text):
-    if pd.isna(text): return ""
-    return str(text).replace("\r", " ").replace("\n", " ").strip()
-
 def is_time_slot(text):
+    # Strict check: Must look like "7:20" or "12:00"
     if not text: return False
-    # Looks for "7:20" or "8:00" start
-    return bool(re.match(r'^\d{1,2}[:.]\d{2}', text))
+    return bool(re.search(r'^\d{1,2}[:.]\d{2}', str(text).strip()))
 
-def parse_pdf_with_tabula(pdf_path):
+def parse_pdf(pdf_path):
     final_schedule = {}
-    
-    # 1. READ PDF (Stream mode to handle broken lines)
-    print("Reading PDF with Tabula...")
-    try:
-        # pages='all' returns a list of DataFrames (one per page usually)
-        dfs = tabula.read_pdf(pdf_path, pages='all', stream=True, guess=False)
-    except Exception as e:
-        print(f"Tabula Error: {e}")
-        return {}
 
-    # STRICT DAY MAPPING (GERMAN KEYS ONLY)
-    # We removed "LUNI", "MARTI" etc. to prevent false matches from the page footer.
-    day_mapping = {
-        "MONTAG": "Luni", 
-        "DIENSTAG": "Marti", 
-        "MITTWOCH": "Miercuri", 
-        "DONNERSTAG": "Joi", 
-        "FREITAG": "Vineri"
-    }
+    with pdfplumber.open(pdf_path) as pdf:
+        # Process first 5 pages only (Mon-Fri)
+        for page_idx in range(min(5, len(pdf.pages))):
+            page = pdf.pages[page_idx]
+            current_day = PAGE_TO_DAY.get(page_idx, "Unknown")
+            
+            print(f"--- Processing Page {page_idx + 1} -> {current_day} ---")
 
-    for i, df in enumerate(dfs):
-        print(f"--- Processing Table {i+1} ---")
-        
-        # 2. DETECT DAY (Search full text of the table)
-        # We convert the whole table to a string to find the header "DIENSTAG" etc.
-        table_text = df.to_string().upper()
-        
-        current_day = None
-        for german_key, romanian_val in day_mapping.items():
-            if german_key in table_text:
-                current_day = romanian_val
-                break
-        
-        if not current_day:
-            print("   -> SKIP: No German day name found in this table.")
-            continue
+            # EXTRACT WORDS WITH COORDINATES
+            # This ignores broken lines and uses pure geometry
+            words = page.extract_words(x_tolerance=2, y_tolerance=2)
             
-        print(f"   -> DETECTED DAY: {current_day}")
+            # Group words by Y-position (Rows)
+            rows = {}
+            for w in words:
+                # Snap Y to nearest 10px to handle wavy text lines
+                y = round(w['top'] / 10) * 10 
+                if y not in rows: rows[y] = []
+                rows[y].append(w)
 
-        # 3. PARSE ROWS
-        # We iterate row by row. If we find a time, we map the rest to classes.
-        for index, row in df.iterrows():
-            # Convert row to list of strings
-            row_data = [normalize_text(x) for x in row.tolist()]
-            
-            # Find the Time Column
-            time_slot = None
-            start_col_idx = -1
-            
-            # Check the first 3 columns for a time
-            for idx, cell in enumerate(row_data[:3]):
-                if is_time_slot(cell):
-                    time_slot = cell
-                    start_col_idx = idx
-                    break
-            
-            if not time_slot: continue
+            # PROCESS ROWS
+            for y in sorted(rows.keys()):
+                # Sort words in this row from Left to Right (X position)
+                row_words = sorted(rows[y], key=lambda w: w['x0'])
+                
+                if not row_words: continue
 
-            # Map Columns to Classes
-            # The column AFTER the time slot is 9A, then 9B, etc.
-            current_data_idx = start_col_idx + 1
-            
-            # Loop through 9A...12D
-            for class_name in EXPECTED_COLUMNS[1:]: 
-                if current_data_idx >= len(row_data): break
+                # CHECK 1: Does row start with a Time?
+                first_text = row_words[0]['text']
+                if not is_time_slot(first_text):
+                    # If not a time (e.g. "LUNI 19.01" or "9A 9B"), SKIP ROW
+                    continue
                 
-                subject = row_data[current_data_idx]
-                current_data_idx += 1
+                time_slot = first_text
+
+                # CHECK 2: Map remaining words to Classes based on X-Position
+                # A4 Landscape Metrics:
+                # Time column ends approx at X=55
+                # Classes start at X=55 and go across the page
+                # Each class column is approx 47.5 pixels wide
                 
-                # Cleanup
-                if len(subject) < 2 or "nan" in subject.lower(): continue
-                
-                # Save
-                if class_name not in final_schedule: final_schedule[class_name] = {}
-                if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
-                
-                entry = f"{time_slot} | {subject}"
-                if entry not in final_schedule[class_name][current_day]:
-                    final_schedule[class_name][current_day].append(entry)
+                COL_START_X = 55
+                COL_WIDTH = 47.5 
+
+                for word in row_words[1:]: # Skip the time word
+                    text = word['text']
+                    x_pos = word['x0']
+                    
+                    # Calculate bucket: (Word_X - Start_X) / Column_Width
+                    col_index = int((x_pos - COL_START_X) / COL_WIDTH)
+                    
+                    # Safety bounds
+                    if col_index < 0: continue
+                    if col_index >= len(ORDERED_CLASSES): continue
+                    
+                    class_name = ORDERED_CLASSES[col_index]
+                    
+                    # Clean up subject text
+                    if len(text) < 2: continue 
+                    
+                    # SAVE TO SCHEDULE
+                    if class_name not in final_schedule: final_schedule[class_name] = {}
+                    if current_day not in final_schedule[class_name]: final_schedule[class_name][current_day] = []
+                    
+                    entry = f"{time_slot} | {text}"
+                    
+                    # Deduplicate
+                    if entry not in final_schedule[class_name][current_day]:
+                        final_schedule[class_name][current_day].append(entry)
 
     return final_schedule
 
@@ -128,11 +122,11 @@ def main():
     print(f"Downloading {pdf_url}")
     pdf_data = requests.get(pdf_url, headers=HEADERS).content
     with open("temp.pdf", "wb") as f: f.write(pdf_data)
-    
-    new_schedule = parse_pdf_with_tabula("temp.pdf")
+        
+    new_schedule = parse_pdf("temp.pdf")
     
     if not new_schedule: 
-        print("Error: Schedule empty.")
+        print("Error: Parsed schedule is empty.")
         return
 
     final_json = {
