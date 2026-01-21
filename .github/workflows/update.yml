@@ -3,7 +3,9 @@ name: Update Schedule
 on:
   schedule:
     - cron: '0 * * * *' # Run every hour
-  workflow_dispatch: # Allow manual run
+  push:                 # 🔴 RUNS INSTANTLY WHEN YOU SAVE CODE
+    branches: [ "main" ]
+  workflow_dispatch:    # Allows manual run
 
 permissions:
   contents: write
@@ -14,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          ref: main # FORCE it to check out the main branch
+          ref: main 
 
       - uses: actions/setup-python@v4
         with:
@@ -24,7 +26,6 @@ jobs:
       
       - run: python scraper.py
       
-      # THIS PLUGIN FIXES YOUR ERROR AUTOMATICALLY
       - uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: Update schedule
