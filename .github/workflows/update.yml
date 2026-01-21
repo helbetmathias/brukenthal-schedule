@@ -1,0 +1,21 @@
+name: Update Schedule
+on:
+  schedule:
+    - cron: '0 * * * *' # Run every hour
+  workflow_dispatch: # Allow manual run button
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with: { python-version: '3.9' }
+      - run: pip install -r requirements.txt
+      - run: python scraper.py
+      - run: |
+          git config --global user.name 'Updater'
+          git config --global user.email 'updater@bot.com'
+          git add timetable.json
+          git commit -m "Update schedule" || exit 0
+          git push
