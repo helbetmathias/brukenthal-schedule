@@ -36,10 +36,27 @@ TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$")
 
 def get_latest_pdf_url():
     html = requests.get(URL, headers=HEADERS, timeout=30).text
-    m = re.search(r'href="([^"]*orarliceu[^"]*\.pdf)"', html, re.IGNORECASE)
-    if not m:
+
+    # toate PDF-urile din pagină
+    pdfs = re.findall(r'href="([^"]+\.pdf)"', html, flags=re.IGNORECASE)
+    if not pdfs:
         return None
-    return urljoin(URL, m.group(1))
+
+    liceu_pdfs = []
+    for href in pdfs:
+        if "liceu" in href.lower():
+            liceu_pdfs.append(urljoin(URL, href))
+
+    if not liceu_pdfs:
+        return None
+
+    # sortăm după toate numerele din URL (an, lună, zi etc.)
+    def score(url):
+        nums = re.findall(r"\d+", url)
+        return [int(n) for n in nums] if nums else [0]
+
+    liceu_pdfs.sort(key=score, reverse=True)
+    return liceu_pdfs[0]
 
 
 def file_hash(path):
