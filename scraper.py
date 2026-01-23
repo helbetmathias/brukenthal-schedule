@@ -6,7 +6,9 @@ import hashlib
 import os
 from datetime import datetime
 from urllib.parse import urljoin
+from zoneinfo import ZoneInfo
 
+RO_TZ = ZoneInfo("Europe/Bucharest")
 URL = "https://brukenthal.ro/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 OUTPUT_FILE = "timetable.json"
@@ -324,11 +326,11 @@ def main():
     schedule = parse_pdf(tmp)
 
     out = {
-        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "pdf_hash": new_hash,
-        "source_pdf": pdf_url,
-        "schedule": schedule,
-    }
+    "updated_at": datetime.now(RO_TZ).strftime("%d.%m.%Y %H:%M"),
+    "pdf_hash": new_hash,
+    "source_pdf": pdf_url,
+    "schedule": schedule,
+}
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
