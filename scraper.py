@@ -7,10 +7,10 @@ import os
 from datetime import datetime
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Tuple
 
 RO_TZ = ZoneInfo("Europe/Bucharest")
-BASE_URL = "https://brukenthal.ro/"
+URL = "https://brukenthal.ro/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 OUTPUT_FILE = "timetable.json"
 
@@ -26,43 +26,53 @@ DAY_MARKERS = {
     "FREITAG": "Vineri",
 }
 
-# accept -, – , —
-TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*[–\-—]\s*\d{1,2}:\d{2}$")
+TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$")
 
-# 5A..12D (găsește clasa chiar dacă e "8D lab. bio", "7B cab. desen", etc.)
-CLASS_CODE_RE = re.compile(r"\b([5-9]|1[0-2])[A-D]\b", re.IGNORECASE)
+LICEU_CLASSES = {
+    "9A", "9B", "9C", "9D",
+    "10A", "10B", "10C", "10D",
+    "11A", "11B", "11C", "11D",
+    "12A", "12B", "12C", "12D",
+}
+GIMNAZIU_CLASSES = {
+    "5A", "5B", "5C", "5D",
+    "6A", "6B", "6C", "6D",
+    "7A", "7B", "7C", "7D",
+    "8A", "8B", "8C", "8D",
+}
 
-# Optional: mici corecții de prefix (dacă vrei, extinzi)
-SUBJECT_PREFIX_FIXES = [
-    (re.compile(r"^(st)(?=[A-Z]|-)", re.IGNORECASE), "Ist"),
-    (re.compile(r"^(nfo)(?=[A-Z]|-)", re.IGNORECASE), "Info"),
-    (re.compile(r"^(otbal)", re.IGNORECASE), "Fotbal"),
-]
+CLASS_RE_LICEU = re.compile(r"\b(9[ABCD]|1[0-2][ABCD])\b")
+CLASS_RE_GIM = re.compile(r"\b([5-8][ABCD])\b")
 
 
 def get_latest_pdf_url(kind: str) -> Optional[str]:
     """
     kind: 'liceu' or 'gimnaziu'
     """
-    html = requests.get(BASE_URL, headers=HEADERS, timeout=30).text
+    html = requests.get(URL, headers=HEADERS, timeout=30).text
     pdfs = re.findall(r'href="([^"]+\.pdf)"', html, flags=re.IGNORECASE)
     if not pdfs:
         return None
 
-    def ok(href: str) -> bool:
-        h = href.lower()
-        if kind == "liceu":
-            return "liceu" in h
-        if kind == "gimnaziu":
-            return ("gimnaziu" in h) or ("gimn" in h) or ("gimnaz" in h)
-        return False
+    kws = []
+    if kind == "liceu":
+        kws = ["liceu"]
+    elif kind == "gimnaziu":
+        kws = ["gimnaziu", "gimnazi", "gimnaz"]  # mai tolerant
+    else:
+        return None
 
-    candidates = [urljoin(BASE_URL, h) for h in pdfs if ok(h)]
+    candidates = []
+    for href in pdfs:
+        low = href.lower()
+        if any(k in low for k in kws):
+            candidates.append(urljoin(URL, href))
+
     if not candidates:
         return None
 
-    def score(url: str) -> List[int]:
-        nums = re.findall(r"\d+", url)
+    def score(u: str) -> List[int]:
+        nums = re.findall(r"\d+", u)
         return [int(n) for n in nums] if nums else [0]
 
     candidates.sort(key=score, reverse=True)
@@ -93,21 +103,11 @@ def is_time_slot(s: str) -> bool:
     return bool(TIME_RE.match(s))
 
 
-def extract_class_code(s: str) -> Optional[str]:
-    if not s:
-        return None
-    s = re.sub(r"\s+", " ", s).strip()
-    m = CLASS_CODE_RE.search(s)
-    return m.group(0).upper() if m else None
-
-
-def find_day_zones(page) -> List[Dict[str, Any]]:
+def find_day_zones(page) -> List[Dict[str, float]]:
     words = page.extract_words(x_tolerance=2, y_tolerance=2)
     zones = []
     for w in words:
-        raw = (w.get("text") or "").upper()
-        # scoatem tot ce nu e literă, ca să prindem "DONNERSTAG" chiar dacă are punctuație
-        t = re.sub(r"[^A-ZĂÂÎȘȚ]", "", raw)
+        t = w["text"].upper()
         if t in DAY_MARKERS:
             zones.append({"day": DAY_MARKERS[t], "top": w["top"], "bottom": w["bottom"]})
     zones.sort(key=lambda z: z["top"])
@@ -116,7 +116,7 @@ def find_day_zones(page) -> List[Dict[str, Any]]:
 
 def get_global_x_bounds(page) -> List[float]:
     verts = [e for e in page.edges if e.get("orientation") == "v"]
-    xs = [e["x0"] for e in verts if "x0" in e]
+    xs = [e["x0"] for e in verts]
     x_bounds = sorted(cluster_positions(xs, tol=1.5))
 
     # vrem 18 bounds => 17 coloane (Time + 16 clase)
@@ -129,21 +129,15 @@ def get_global_x_bounds(page) -> List[float]:
                 best = (width, cand)
         x_bounds = best[1]
 
-    # fallback: dacă nu avem destule, aproximăm uniform
-    if len(x_bounds) < 18 and xs:
-        lo, hi = min(xs), max(xs)
-        step = (hi - lo) / 17.0 if hi > lo else 1.0
-        x_bounds = [lo + i * step for i in range(18)]
-
     return x_bounds
 
 
 def get_y_bounds_for_crop(page_crop) -> List[float]:
     horiz = [e for e in page_crop.edges if e.get("orientation") == "h"]
-    ys = [e.get("top", e.get("y0", 0)) for e in horiz]
+    ys = [e["top"] for e in horiz]
     y_bounds = sorted(cluster_positions(ys, tol=1.5))
 
-    cleaned: List[float] = []
+    cleaned = []
     for y in y_bounds:
         if not cleaned or abs(y - cleaned[-1]) > 1.0:
             cleaned.append(y)
@@ -153,27 +147,27 @@ def get_y_bounds_for_crop(page_crop) -> List[float]:
 def normalize_subject(subj: str) -> str:
     subj = (subj or "").strip()
     subj = re.sub(r"\s+", " ", subj)
-    if len(subj) < 2:
-        return ""
 
+    # artefact: litera singura
     if re.fullmatch(r"[a-z]", subj):
         return ""
 
-    for rx, repl in SUBJECT_PREFIX_FIXES:
-        subj = rx.sub(repl, subj)
+    # uneori se lipeste un prefix mic inainte de cuvant (artefact)
+    subj = re.sub(r"^[a-z](?=[A-Z0-9ĂÂÎȘȚ])", "", subj).strip()
 
-    subj = subj.strip()
-    return subj if len(subj) >= 2 else ""
+    if len(subj) < 2:
+        return ""
+    return subj
 
 
 def cell_text_from_chars(
     chars,
     x0, x1, y0, y1,
-    y_tol: float = 1.2,
-    x_gap: float = 1.0,
-    x_pad_left: float = 0.6,   # mai mic, ca să nu taie prima literă
-    x_pad_right: float = 0.35,
-    y_pad: float = 0.2
+    y_tol=1.2,
+    x_gap=1.0,
+    x_pad_left=1.4,
+    x_pad_right=0.35,
+    y_pad=0.2
 ) -> str:
     sx0 = x0 + x_pad_left
     sx1 = x1 - x_pad_right
@@ -226,16 +220,35 @@ def cell_text_from_chars(
     return re.sub(r"\s+", " ", " ".join([l for l in out_lines if l]).strip())
 
 
-def parse_day_block(day_crop, x_bounds: List[float]) -> Dict[str, List[str]]:
+def extract_class_and_note(header_text: str, kind: str) -> Tuple[Optional[str], str]:
+    """
+    Din antetul coloanei (ex: '8D lab. bio', '7B cab. desen') extrage:
+      - cls = '8D'
+      - note = 'lab. bio' / 'cab. desen' (doar daca exista)
+    """
+    t = re.sub(r"\s+", " ", (header_text or "").strip())
+    if not t:
+        return None, ""
+
+    rx = CLASS_RE_LICEU if kind == "liceu" else CLASS_RE_GIM
+    m = rx.search(t)
+    if not m:
+        return None, ""
+
+    cls = m.group(1)
+    note = (t.replace(cls, "", 1)).strip()
+    note = re.sub(r"\s+", " ", note)
+    return cls, note
+
+
+def parse_day_block(day_crop, x_bounds: List[float], kind: str) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     y_bounds = get_y_bounds_for_crop(day_crop)
     if len(y_bounds) < 5:
-        return {}
+        return {}, {}
 
     chars = day_crop.chars
     n_rows = len(y_bounds) - 1
     n_cols = len(x_bounds) - 1
-    if n_cols < 5:
-        return {}
 
     grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
     for r in range(n_rows):
@@ -244,36 +257,35 @@ def parse_day_block(day_crop, x_bounds: List[float]) -> Dict[str, List[str]]:
             cx0, cx1 = x_bounds[c], x_bounds[c + 1]
             grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1)
 
-    # header row: rândul cu cele mai multe coduri de clasă (indiferent de "cab/lab" în antet)
+    # gasim header row: randul cu cele mai multe "clase" detectate (chiar daca are 'cab./lab.')
     header_r = None
-    best_hits = -1
+    best_score = -1
     for r in range(min(12, n_rows)):
-        hits = 0
-        for c in range(1, n_cols):
-            if extract_class_code(grid[r][c]):
-                hits += 1
-        if hits > best_hits:
-            best_hits = hits
+        found = 0
+        for c in range(1, min(n_cols, 40)):
+            cls, _ = extract_class_and_note(grid[r][c], kind)
+            if cls:
+                found += 1
+        if found > best_score:
+            best_score = found
             header_r = r
 
-    if header_r is None or best_hits < 6:
-        return {}
+    # prag minim: macar 6 clase detectate
+    if header_r is None or best_score < 6:
+        return {}, {}
 
-    # mapăm coloanele după clasa extrasă din antet (ex: "8D lab. bio" -> "8D")
+    # mapam col -> cls si cls -> note (note e pe ziua aia!)
     col_to_class: Dict[int, str] = {}
-    seen = set()
-    for c in range(1, min(17, n_cols)):  # max 16 clase
-        cls = extract_class_code(grid[header_r][c])
-        if not cls or cls in seen:
+    class_note: Dict[str, str] = {}
+    for c in range(1, n_cols):
+        cls, note = extract_class_and_note(grid[header_r][c], kind)
+        if not cls:
             continue
         col_to_class[c] = cls
-        seen.add(cls)
+        if note:
+            class_note[cls] = note
 
-    if not col_to_class:
-        return {}
-
-    day_schedule: Dict[str, List[str]] = {cls: [] for cls in seen}
-
+    day_schedule: Dict[str, List[str]] = {}
     for r in range(header_r + 1, n_rows):
         time_txt = (grid[r][0] or "").strip()
         if not is_time_slot(time_txt):
@@ -283,62 +295,56 @@ def parse_day_block(day_crop, x_bounds: List[float]) -> Dict[str, List[str]]:
             subj = normalize_subject(grid[r][c])
             if not subj:
                 continue
+            # filtreaza cazuri unde in celula ajunge doar numele clasei etc.
+            if subj in LICEU_CLASSES or subj in GIMNAZIU_CLASSES:
+                continue
+            day_schedule.setdefault(cls, [])
             entry = f"{time_txt} | {subj}"
             if entry not in day_schedule[cls]:
                 day_schedule[cls].append(entry)
 
-    return {k: v for k, v in day_schedule.items() if v}
+    return day_schedule, class_note
 
 
-def parse_pdf(pdf_path: str) -> Dict[str, Dict[str, List[str]]]:
-    """
-    returnează { "5A": {"Luni":[...], ...}, "9A": {...}, ... }
-    """
+def parse_pdf(pdf_path: str, kind: str) -> Tuple[Dict[str, Dict[str, List[str]]], Dict[str, Dict[str, str]]]:
     final: Dict[str, Dict[str, List[str]]] = {}
+    notes: Dict[str, Dict[str, str]] = {}
 
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            zones = find_day_zones(page)
-            if not zones:
-                continue
+        page = pdf.pages[0]
+        x_bounds = get_global_x_bounds(page)
 
-            x_bounds = get_global_x_bounds(page)
-            if not x_bounds or len(x_bounds) < 10:
-                continue
+        zones = find_day_zones(page)
+        if not zones:
+            raise RuntimeError(f"[{kind}] Could not find day headers (MONTAG/DIENSTAG/...).")
 
-            for i, z in enumerate(zones):
-                day_name = z["day"]
-                y_start = max(0, z["top"] - 8)
-                y_end = zones[i + 1]["top"] - 6 if i + 1 < len(zones) else page.height
+        for i, z in enumerate(zones):
+            day_name = z["day"]
+            y_start = max(0, z["top"] - 8)
+            y_end = zones[i + 1]["top"] - 6 if i + 1 < len(zones) else page.height
 
-                crop = page.crop((0, y_start, page.width, y_end))
-                day_block = parse_day_block(crop, x_bounds)
+            crop = page.crop((0, y_start, page.width, y_end))
+            day_block, day_notes = parse_day_block(crop, x_bounds, kind)
 
-                for cls, entries in day_block.items():
-                    final.setdefault(cls, {})
-                    final[cls].setdefault(day_name, [])
-                    for e in entries:
-                        if e not in final[cls][day_name]:
-                            final[cls][day_name].append(e)
+            for cls, entries in day_block.items():
+                final.setdefault(cls, {})
+                final[cls].setdefault(day_name, [])
+                for e in entries:
+                    if e not in final[cls][day_name]:
+                        final[cls][day_name].append(e)
 
-    return final
+            for cls, note in day_notes.items():
+                if note:
+                    notes.setdefault(cls, {})
+                    notes[cls][day_name] = note
 
-
-def merge_schedules(dst: Dict[str, Dict[str, List[str]]], src: Dict[str, Dict[str, List[str]]]) -> None:
-    for cls, days in src.items():
-        dst.setdefault(cls, {})
-        for day, entries in days.items():
-            dst[cls].setdefault(day, [])
-            for e in entries:
-                if e not in dst[cls][day]:
-                    dst[cls][day].append(e)
+    return final, notes
 
 
 def notify_worker(title: str, body: str, data: dict) -> None:
     if not WORKER_AUTH_KEY:
         print("No WORKER_AUTH_KEY set, skipping notification.")
         return
-
     try:
         resp = requests.post(
             f"{WORKER_NOTIFY_URL}?key={WORKER_AUTH_KEY}",
@@ -350,97 +356,124 @@ def notify_worker(title: str, body: str, data: dict) -> None:
         print("Worker notify failed:", repr(e))
 
 
+def filter_by_classes(schedule: Dict[str, dict], allowed: set) -> Dict[str, dict]:
+    return {k: v for k, v in (schedule or {}).items() if k in allowed}
+
+
 def main():
     liceu_url = get_latest_pdf_url("liceu")
     gim_url = get_latest_pdf_url("gimnaziu")
 
-    if not liceu_url and not gim_url:
-        print("No PDF links found on site (liceu/gimnaziu).")
+    if not liceu_url or not gim_url:
+        print("Could not find both PDF links on site.")
+        print("liceu_url:", liceu_url)
+        print("gim_url:", gim_url)
         return
 
-    # citește vechiul json (hash-uri)
-    old_hashes = {"liceu": None, "gimnaziu": None}
-    had_old = False
+    # load old output (for incremental update + safety)
+    old = {}
     if os.path.exists(OUTPUT_FILE):
         try:
             with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-                old = json.load(f)
-                had_old = True
-                old_hashes["liceu"] = (old.get("sources", {}).get("liceu", {}) or {}).get("pdf_hash")
-                old_hashes["gimnaziu"] = (old.get("sources", {}).get("gimnaziu", {}) or {}).get("pdf_hash")
+                old = json.load(f) or {}
         except Exception:
-            pass
+            old = {}
 
-    # download ca să calculăm hash corect
-    sources_out: Dict[str, Dict[str, str]] = {}
-    tmp_files: Dict[str, str] = {}
-    new_hashes: Dict[str, Optional[str]] = {"liceu": None, "gimnaziu": None}
+    old_sources = (old.get("sources") or {})
+    old_hash_liceu = ((old_sources.get("liceu") or {}).get("pdf_hash") or "")
+    old_hash_gim = ((old_sources.get("gimnaziu") or {}).get("pdf_hash") or "")
 
-    def download(name: str, url: Optional[str]) -> None:
-        if not url:
-            return
-        print(f"[{name}] fetching: {url}")
-        resp = requests.get(url, headers=HEADERS, timeout=60)
-        resp.raise_for_status()
-        tmp = f"temp_{name}.pdf"
-        with open(tmp, "wb") as f:
-            f.write(resp.content)
-        h = file_hash(tmp)
+    old_schedule = old.get("schedule") or {}
+    old_notes = old.get("day_notes") or {}
 
-        tmp_files[name] = tmp
-        new_hashes[name] = h
-        sources_out[name] = {"source_pdf": url, "pdf_hash": h}
+    # download both
+    tmp_l = "temp_liceu.pdf"
+    tmp_g = "temp_gimnaziu.pdf"
 
-    download("liceu", liceu_url)
-    download("gimnaziu", gim_url)
+    r1 = requests.get(liceu_url, headers=HEADERS, timeout=60)
+    r1.raise_for_status()
+    with open(tmp_l, "wb") as f:
+        f.write(r1.content)
 
-    # dacă există json vechi și ambele hash-uri sunt identice -> skip
-    unchanged_all = had_old
-    for k in ["liceu", "gimnaziu"]:
-        if new_hashes.get(k) is None:
-            continue
-        if old_hashes.get(k) != new_hashes.get(k):
-            unchanged_all = False
+    r2 = requests.get(gim_url, headers=HEADERS, timeout=60)
+    r2.raise_for_status()
+    with open(tmp_g, "wb") as f:
+        f.write(r2.content)
 
-    if unchanged_all and had_old:
+    new_hash_liceu = file_hash(tmp_l)
+    new_hash_gim = file_hash(tmp_g)
+
+    liceu_changed = (new_hash_liceu != old_hash_liceu)
+    gim_changed = (new_hash_gim != old_hash_gim)
+
+    if not liceu_changed and not gim_changed:
         print("Both PDFs unchanged, skipping update.")
-        for p in tmp_files.values():
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+        try:
+            os.remove(tmp_l)
+            os.remove(tmp_g)
+        except OSError:
+            pass
         return
 
-    # parsează AMBELE (ca să ai schedule complet în output, nu doar ce s-a schimbat)
-    combined_schedule: Dict[str, Dict[str, List[str]]] = {}
+    # parse only what changed; reuse old for the other
+    schedule_liceu: Dict[str, Dict[str, List[str]]] = filter_by_classes(old_schedule, LICEU_CLASSES)
+    notes_liceu: Dict[str, Dict[str, str]] = filter_by_classes(old_notes, LICEU_CLASSES)
 
-    for name, tmp in tmp_files.items():
-        print(f"[{name}] parsing...")
-        sched = parse_pdf(tmp)
-        print(f"[{name}] parsed classes:", len(sched))
-        merge_schedules(combined_schedule, sched)
+    schedule_gim: Dict[str, Dict[str, List[str]]] = filter_by_classes(old_schedule, GIMNAZIU_CLASSES)
+    notes_gim: Dict[str, Dict[str, str]] = filter_by_classes(old_notes, GIMNAZIU_CLASSES)
 
-    for p in tmp_files.values():
+    try:
+        if liceu_changed:
+            schedule_liceu, notes_liceu = parse_pdf(tmp_l, kind="liceu")
+        if gim_changed:
+            schedule_gim, notes_gim = parse_pdf(tmp_g, kind="gimnaziu")
+    except Exception as e:
+        # safety: do NOT overwrite OUTPUT_FILE if parsing fails
+        print("Parsing failed, keeping old JSON. Error:", repr(e))
+        raise
+    finally:
         try:
-            os.remove(p)
+            os.remove(tmp_l)
+            os.remove(tmp_g)
         except OSError:
             pass
 
+    merged_schedule = {}
+    merged_schedule.update(schedule_liceu)
+    merged_schedule.update(schedule_gim)
+
+    merged_notes = {}
+    merged_notes.update(notes_liceu)
+    merged_notes.update(notes_gim)
+
     out = {
         "updated_at": datetime.now(RO_TZ).strftime("%d.%m.%Y %H:%M"),
-        "sources": sources_out,
-        "schedule": combined_schedule,
+        "sources": {
+            "liceu": {"source_pdf": liceu_url, "pdf_hash": new_hash_liceu},
+            "gimnaziu": {"source_pdf": gim_url, "pdf_hash": new_hash_gim},
+        },
+        "schedule": merged_schedule,
     }
+
+    # include notes only if we actually have any
+    if merged_notes:
+        out["day_notes"] = merged_notes
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
-    print("Updated timetable.json | classes:", len(combined_schedule))
+    print("Updated timetable.json | classes:", len(merged_schedule))
+    if merged_notes:
+        print("Day notes present for classes:", len(merged_notes))
 
     notify_worker(
         title="Schedule updated",
         body="A new timetable PDF was detected. Open the app to refresh.",
-        data={"updated_at": out["updated_at"], "sources": out["sources"]},
+        data={
+            "updated_at": out["updated_at"],
+            "liceu_pdf": out["sources"]["liceu"]["source_pdf"],
+            "gimnaziu_pdf": out["sources"]["gimnaziu"]["source_pdf"],
+        },
     )
 
 
