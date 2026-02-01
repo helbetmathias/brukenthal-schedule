@@ -13,11 +13,19 @@ URL = "https://brukenthal.ro/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 OUTPUT_FILE = "timetable.json"
 
-# Cloudflare Worker notify endpoint
 WORKER_NOTIFY_URL = "https://shrill-tooth-d37a.ronzigamespro2007.workers.dev/notify"
 WORKER_AUTH_KEY = os.getenv("WORKER_AUTH_KEY", "")  # set in GitHub Actions secrets
 
-LEVELS = ["liceu", "gimnaziu"]
+DAY_MARKERS = {
+    "MONTAG": "Luni",
+    "DIENSTAG": "Marti",
+    "MITTWOCH": "Miercuri",
+    "DONNERSTAG": "Joi",
+    "FREITAG": "Vineri",
+}
+
+TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$")
+
 
 COLUMNS_BY_LEVEL = {
     "liceu": [
@@ -36,15 +44,15 @@ COLUMNS_BY_LEVEL = {
     ],
 }
 
-DAY_MARKERS = {
-    "MONTAG": "Luni",
-    "DIENSTAG": "Marti",
-    "MITTWOCH": "Miercuri",
-    "DONNERSTAG": "Joi",
-    "FREITAG": "Vineri",
-}
 
-TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$")
+def normalize_time_range(s: str) -> str:
+    s = (s or "").strip()
+    s = re.sub(r"\s*-\s*", "-", s)
+    return s
+
+
+def is_time_slot(s: str) -> bool:
+    return bool(TIME_RE.match((s or "").strip()))
 
 
 def file_hash(path: str) -> str:
@@ -53,6 +61,36 @@ def file_hash(path: str) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def score_url(u: str):
+    nums = re.findall(r"\d+", u)
+    return [int(n) for n in nums] if nums else [0]
+
+
+def extract_pdf_urls_from_site():
+    html = requests.get(URL, headers=HEADERS, timeout=30).text
+    hrefs = re.findall(r'href="([^"]+\.pdf)"', html, flags=re.IGNORECASE)
+    urls = [urljoin(URL, h) for h in hrefs]
+    return list(dict.fromkeys(urls))
+
+
+def get_latest_pdf_urls():
+    pdf_urls = extract_pdf_urls_from_site()
+    if not pdf_urls:
+        return {"liceu": None, "gimnaziu": None}
+
+    def pick(pattern: str):
+        cand = [u for u in pdf_urls if re.search(pattern, u, flags=re.IGNORECASE)]
+        if not cand:
+            return None
+        cand.sort(key=score_url, reverse=True)
+        return cand[0]
+
+    return {
+        "liceu": pick(r"liceu"),
+        "gimnaziu": pick(r"gimnaz"),
+    }
 
 
 def cluster_positions(values, tol=1.5):
@@ -64,11 +102,6 @@ def cluster_positions(values, tol=1.5):
         else:
             clusters[-1].append(v)
     return [sum(c) / len(c) for c in clusters]
-
-
-def is_time_slot(s):
-    s = (s or "").strip()
-    return bool(TIME_RE.match(s))
 
 
 def find_day_zones(page):
@@ -87,7 +120,7 @@ def get_global_x_bounds(page):
     xs = [e["x0"] for e in verts]
     x_bounds = sorted(cluster_positions(xs, tol=1.5))
 
-    # vrem 18 bounds => 17 coloane (Time + 16 clase)
+    # 18 bounds => 17 coloane (Time + 16 clase)
     if len(x_bounds) > 18:
         best = None
         for i in range(0, len(x_bounds) - 17):
@@ -116,11 +149,9 @@ def normalize_subject(subj: str) -> str:
     subj = (subj or "").strip()
     subj = re.sub(r"\s+", " ", subj)
 
-    # elimină "a" singur etc.
     if re.fullmatch(r"[a-z]", subj):
         return ""
 
-    # elimină litera mică lipită de început (artifact de OCR/extragere)
     subj = re.sub(r"^[a-z](?=[A-Z0-9ĂÂÎȘȚ])", "", subj).strip()
 
     if len(subj) < 2:
@@ -198,13 +229,20 @@ def parse_day_block(day_crop, x_bounds, columns_order):
     n_cols = len(x_bounds) - 1
 
     grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
+
+    # IMPORTANT: padding diferit pt Time vs coloanele de clase
     for r in range(n_rows):
         ry0, ry1 = y_bounds[r], y_bounds[r + 1]
         for c in range(n_cols):
             cx0, cx1 = x_bounds[c], x_bounds[c + 1]
-            grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1)
+            if c == 0:
+                # Time column: padding mic (vrem să prindă bine ora)
+                grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1, x_pad_left=0.6, x_pad_right=0.6)
+            else:
+                # Class columns: padding mai mare stânga ca să nu “prindă” ora din stânga
+                grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1, x_pad_left=3.0, x_pad_right=0.6)
 
-    # detect header row (cautăm rândul cu cele mai multe etichete de clase)
+    # detect header row
     header_r = None
     best_score = -1
     for r in range(min(10, n_rows)):
@@ -216,23 +254,37 @@ def parse_day_block(day_crop, x_bounds, columns_order):
     if header_r is None or best_score < 5:
         return {}
 
-    # mapăm coloanele 1..16 la clasele din columns_order
     max_class_cols = min(len(columns_order) - 1, n_cols - 1)
     col_to_class = {c: columns_order[c] for c in range(1, max_class_cols + 1)}
 
     day_schedule = {cls: [] for cls in columns_order[1:]}
+
     for r in range(header_r + 1, n_rows):
-        time_txt = (grid[r][0] or "").strip()
+        time_txt = normalize_time_range((grid[r][0] or "").strip())
         if not is_time_slot(time_txt):
             continue
 
         for c, cls in col_to_class.items():
-            subj = normalize_subject(grid[r][c])
-            if not subj:
+            subj_raw = normalize_subject(grid[r][c])
+
+            # FIX 1: dacă în “materie” ai de fapt intervalul orar, ignoră-l
+            if not subj_raw:
                 continue
-            if subj in columns_order:  # evităm caz când "subiectul" e de fapt "10A" etc.
+            subj_norm = normalize_time_range(subj_raw)
+
+            # ignorăm exact intervalele orare (artefactul tău)
+            if is_time_slot(subj_norm):
                 continue
-            day_schedule[cls].append(f"{time_txt} | {subj}")
+
+            # FIX 2: ignoră dacă “materia” e identică cu ora rândului
+            if subj_norm.replace(" ", "") == time_txt.replace(" ", ""):
+                continue
+
+            # sanity: nu lăsa să fie chiar numele unei clase
+            if subj_norm in columns_order:
+                continue
+
+            day_schedule[cls].append(f"{time_txt} | {subj_norm}")
 
     return {k: v for k, v in day_schedule.items() if v}
 
@@ -247,7 +299,6 @@ def schedule_entry_count(schedule: dict) -> int:
 
 def parse_page(page, columns_order):
     final = {}
-
     x_bounds = get_global_x_bounds(page)
 
     zones = find_day_zones(page)
@@ -273,21 +324,15 @@ def parse_page(page, columns_order):
 
 
 def parse_pdf_best_page(pdf_path, columns_order):
-    """
-    Dacă PDF-ul are mai multe pagini, încearcă toate paginile și o alege
-    pe cea cu cele mai multe intrări (de obicei pagina corectă pentru acel nivel).
-    """
     best = {}
     best_cnt = -1
-
     with pdfplumber.open(pdf_path) as pdf:
-        for idx, page in enumerate(pdf.pages):
+        for page in pdf.pages:
             sched = parse_page(page, columns_order)
             cnt = schedule_entry_count(sched)
             if cnt > best_cnt:
                 best_cnt = cnt
                 best = sched
-
     return best if best_cnt > 0 else {}
 
 
@@ -295,7 +340,6 @@ def notify_worker(title, body, data):
     if not WORKER_AUTH_KEY:
         print("No WORKER_AUTH_KEY set, skipping notification.")
         return
-
     try:
         resp = requests.post(
             f"{WORKER_NOTIFY_URL}?key={WORKER_AUTH_KEY}",
@@ -307,145 +351,94 @@ def notify_worker(title, body, data):
         print("Worker notify failed:", repr(e))
 
 
-def extract_pdf_urls_from_site():
-    html = requests.get(URL, headers=HEADERS, timeout=30).text
-    hrefs = re.findall(r'href="([^"]+\.pdf)"', html, flags=re.IGNORECASE)
-    urls = [urljoin(URL, h) for h in hrefs]
-    # de-dup păstrând ordinea
-    return list(dict.fromkeys(urls))
-
-
-def score_url(u: str):
-    nums = re.findall(r"\d+", u)
-    return [int(n) for n in nums] if nums else [0]
-
-
-def get_latest_pdf_urls():
-    pdf_urls = extract_pdf_urls_from_site()
-    if not pdf_urls:
-        return {"liceu": None, "gimnaziu": None}
-
-    buckets = {"liceu": [], "gimnaziu": []}
-    for u in pdf_urls:
-        low = u.lower()
-        if "liceu" in low:
-            buckets["liceu"].append(u)
-        if "gimnaz" in low:  # prinde gimnaziu/gimnazial/gimn-...
-            buckets["gimnaziu"].append(u)
-
-    out = {"liceu": None, "gimnaziu": None}
-    for level in LEVELS:
-        if buckets[level]:
-            buckets[level].sort(key=score_url, reverse=True)
-            out[level] = buckets[level][0]
-
-    return out
-
-
-def load_existing():
-    if not os.path.exists(OUTPUT_FILE):
-        return {}
-    try:
-        with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
 def main():
     latest = get_latest_pdf_urls()
-    if not latest.get("liceu") and not latest.get("gimnaziu"):
-        print("No liceu/gimnaziu PDF links found on site.")
+
+    liceu_url = latest.get("liceu")
+    gimn_url = latest.get("gimnaziu")
+
+    if not liceu_url and not gimn_url:
+        print("No liceu/gimnaziu PDF link found on site.")
         return
 
-    existing = load_existing()
+    pdf_urls = [u for u in [liceu_url, gimn_url] if u]
+    tmp_files = []
 
-    existing_sources = existing.get("sources", {})
-    existing_schedule = existing.get("schedule", {})
+    # load old
+    old = {}
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                old = json.load(f) or {}
+        except Exception:
+            old = {}
 
-    # cache download per URL ca să nu descarci de 2 ori același PDF
-    downloaded = {}  # url -> {"path":..., "hash":...}
-    changed_levels = []
+    old_urls = old.get("source_pdf") or []
+    old_hashes = old.get("pdf_hash") or []
 
-    def ensure_download(url: str):
-        if url in downloaded:
-            return downloaded[url]["path"], downloaded[url]["hash"]
+    new_hashes = []
+    schedules = []
 
-        safe = hashlib.md5(url.encode("utf-8")).hexdigest()[:10]
-        tmp_path = f"temp_{safe}.pdf"
-
+    for url in pdf_urls:
         resp = requests.get(url, headers=HEADERS, timeout=60)
         resp.raise_for_status()
-        with open(tmp_path, "wb") as f:
+
+        safe = hashlib.md5(url.encode("utf-8")).hexdigest()[:10]
+        tmp = f"temp_{safe}.pdf"
+        with open(tmp, "wb") as f:
             f.write(resp.content)
+        tmp_files.append(tmp)
 
-        h = file_hash(tmp_path)
-        downloaded[url] = {"path": tmp_path, "hash": h}
-        return tmp_path, h
+        h = file_hash(tmp)
+        new_hashes.append(h)
 
-    # procesează fiecare nivel
-    for level in LEVELS:
-        url = latest.get(level)
-        if not url:
-            print(f"No {level} PDF found. Keeping existing data (if any).")
-            continue
+        level = "liceu" if "liceu" in url.lower() else "gimnaziu"
+        cols = COLUMNS_BY_LEVEL[level]
+        sched = parse_pdf_best_page(tmp, cols)
+        schedules.append(sched)
 
-        tmp_path, new_hash = ensure_download(url)
-
-        old_hash = (existing_sources.get(level, {}) or {}).get("pdf_hash")
-        if old_hash == new_hash:
-            print(f"{level}: PDF unchanged, skipping parse.")
-            continue
-
-        print(f"{level}: PDF changed -> parsing...")
-        columns = COLUMNS_BY_LEVEL[level]
-        sched = parse_pdf_best_page(tmp_path, columns)
-
-        if not sched:
-            print(f"{level}: WARNING: parsed schedule is empty (check PDF layout).")
-            # tot actualizăm hash+url ca să nu repete la infinit; poți comenta dacă vrei
-        existing_schedule[level] = sched
-        existing_sources[level] = {"pdf_hash": new_hash, "source_pdf": url}
-        changed_levels.append(level)
-
-    # cleanup temp files
-    for meta in downloaded.values():
+    # cleanup temp
+    for t in tmp_files:
         try:
-            os.remove(meta["path"])
+            os.remove(t)
         except OSError:
             pass
 
-    if not changed_levels:
-        print("No changes detected in liceu/gimnaziu PDFs. Nothing to do.")
+    # skip if unchanged
+    if old_urls == pdf_urls and old_hashes == new_hashes:
+        print("PDFs unchanged, skipping update.")
         return
 
-    # scrie output
-    out = existing if isinstance(existing, dict) else {}
-    out["updated_at"] = datetime.now(RO_TZ).strftime("%d.%m.%Y %H:%M")
-    out["sources"] = existing_sources
-    out["schedule"] = existing_schedule
+    # merge schedules (liceu + gimnaziu într-un singur dict, ca la tine)
+    merged = {}
+    for sched in schedules:
+        for cls, daymap in sched.items():
+            if cls not in merged:
+                merged[cls] = daymap
+            else:
+                # dacă există deja (teoretic nu), combinăm
+                for day, entries in daymap.items():
+                    merged[cls].setdefault(day, [])
+                    for e in entries:
+                        if e not in merged[cls][day]:
+                            merged[cls][day].append(e)
 
-    # backward-ish (dacă ceva mai vechi se uită la aceste chei)
-    primary = "liceu" if "liceu" in existing_sources else changed_levels[0]
-    out["pdf_hash"] = existing_sources.get(primary, {}).get("pdf_hash", "")
-    out["source_pdf"] = existing_sources.get(primary, {}).get("source_pdf", "")
+    out = {
+        "updated_at": datetime.now(RO_TZ).strftime("%d.%m.%Y %H:%M"),
+        "source_pdf": pdf_urls,
+        "pdf_hash": new_hashes,
+        "schedule": merged,
+    }
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
-    print("Updated timetable.json | changed:", changed_levels)
+    print("Updated timetable.json | classes:", len(merged))
 
-    # notify
-    title = "Schedule updated"
-    body = "Timetable update detected: " + ", ".join(changed_levels)
     notify_worker(
-        title=title,
-        body=body,
-        data={
-            "updated_at": out["updated_at"],
-            "changed_levels": changed_levels,
-            "sources": out.get("sources", {}),
-        },
+        title="Schedule updated",
+        body="A new timetable PDF was detected. Open the app to refresh.",
+        data={"updated_at": out["updated_at"], "source_pdf": out["source_pdf"], "pdf_hash": out["pdf_hash"]},
     )
 
 
