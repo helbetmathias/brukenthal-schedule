@@ -16,7 +16,6 @@ OUTPUT_FILE = "timetable.json"
 WORKER_NOTIFY_URL = "https://shrill-tooth-d37a.ronzigamespro2007.workers.dev/notify"
 WORKER_AUTH_KEY = os.getenv("WORKER_AUTH_KEY", "")
 
-# Configurații specifice pentru coloane
 COLS_LICEU = [
     "Time",
     "9A", "9B", "9C", "9D",
@@ -44,26 +43,27 @@ DAY_MARKERS = {
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$")
 
 def get_latest_pdf_urls():
-    """Găsește URL-urile pentru Liceu și Gimnaziu."""
     try:
         html = requests.get(URL, headers=HEADERS, timeout=30).text
     except Exception:
         return {}
 
     pdfs = re.findall(r'href="([^"]+\.pdf)"', html, flags=re.IGNORECASE)
-    found = {"liceu": [], "gimnaziu": []}
-    
-    # Funcție de sortare (după cifrele din URL - dată/versiune)
+    if not pdfs:
+        return {}
+
     def score(url):
         nums = re.findall(r"\d+", url)
         return [int(n) for n in nums] if nums else [0]
 
+    found = {"liceu": [], "gimnaziu": []}
+    
     for href in pdfs:
         full_url = urljoin(URL, href)
-        lower = href.lower()
-        if "liceu" in lower:
+        lower_href = href.lower()
+        if "liceu" in lower_href:
             found["liceu"].append(full_url)
-        elif "gimnaziu" in lower:
+        elif "gimnaziu" in lower_href:
             found["gimnaziu"].append(full_url)
 
     result = {}
@@ -77,8 +77,14 @@ def get_latest_pdf_urls():
 
     return result
 
-def cluster_positions(values, tol=2.0):
-    """Grupează liniile verticale care sunt foarte apropiate."""
+def file_hash(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def cluster_positions(values, tol=1.5):
     values = sorted(values)
     clusters = []
     for v in values:
@@ -88,234 +94,277 @@ def cluster_positions(values, tol=2.0):
             clusters[-1].append(v)
     return [sum(c) / len(c) for c in clusters]
 
+def is_time_slot(s):
+    s = (s or "").strip()
+    return bool(TIME_RE.match(s))
+
+def find_day_zones(page):
+    words = page.extract_words(x_tolerance=2, y_tolerance=2)
+    zones = []
+    for w in words:
+        t = w["text"].upper()
+        if t in DAY_MARKERS:
+            zones.append({"day": DAY_MARKERS[t], "top": w["top"], "bottom": w["bottom"]})
+    zones.sort(key=lambda z: z["top"])
+    return zones
+
 def get_global_x_bounds(page, expected_cols_count):
-    """
-    Detectează limitele coloanelor (X).
-    FIX: Dacă lipsește ultima linie din dreapta, o prezice.
-    """
     verts = [e for e in page.edges if e["orientation"] == "v"]
     xs = [e["x0"] for e in verts]
-    x_bounds = sorted(cluster_positions(xs, tol=2.0))
+    x_bounds = sorted(cluster_positions(xs, tol=1.5))
 
-    # Avem nevoie de N+1 linii pentru N coloane
     needed = expected_cols_count + 1 
     
-    # 1. Căutăm exact setul de linii necesar
-    best = None
-    if len(x_bounds) >= needed:
+    if len(x_bounds) > needed:
+        best = None
         for i in range(0, len(x_bounds) - (needed - 1)):
             cand = x_bounds[i : i + needed]
             width = cand[-1] - cand[0]
-            # Alegem setul cel mai lat (care acoperă probabil toată pagina)
             if best is None or width > best[0]:
                 best = (width, cand)
-    
-    if best:
-        return best[1]
-    
-    # 2. FALLBACK: Dacă avem N linii (lipsește ultima bordură din dreapta)
-    # Asta rezolvă problema cu 12D/8D dacă PDF-ul e tăiat prost
-    if len(x_bounds) >= needed - 1:
-        # Încercăm să găsim un set de N linii care par a fi coloane
-        candidate = x_bounds[-(needed-1):] # Luăm ultimele N linii disponibile
-        
-        # Calculăm lățimea medie a coloanelor existente
-        avg_width = (candidate[-1] - candidate[0]) / (len(candidate) - 1)
-        
-        # Dacă lățimea pare ok (>20px), adăugăm manual ultima linie
-        if avg_width > 20:
-            candidate.append(candidate[-1] + avg_width)
-            print(f"⚠️ Warning: Added virtual right border at {candidate[-1]}")
-            return candidate
+        if best:
+            x_bounds = best[1]
 
     return x_bounds
 
 def get_y_bounds_for_crop(page_crop):
     horiz = [e for e in page_crop.edges if e["orientation"] == "h"]
     ys = [e["top"] for e in horiz]
-    return sorted(cluster_positions(ys, tol=1.5))
+    y_bounds = sorted(cluster_positions(ys, tol=1.5))
+
+    cleaned = []
+    for y in y_bounds:
+        if not cleaned or abs(y - cleaned[-1]) > 1.0:
+            cleaned.append(y)
+    return cleaned
 
 def normalize_subject(subj: str) -> str:
     subj = (subj or "").strip()
     subj = re.sub(r"\s+", " ", subj)
-    if re.fullmatch(r"[a-z]", subj): return ""
+
+    if re.fullmatch(r"[a-z]", subj):
+        return ""
+
     subj = re.sub(r"^[a-z](?=[A-Z0-9ĂÂÎȘȚ])", "", subj).strip()
-    return subj if len(subj) >= 2 else ""
 
-def cell_text_from_chars(chars, x0, x1, y0, y1):
-    # Marje mici pentru a evita suprapunerile
-    sx0, sx1 = x0 + 1.5, x1 - 0.5
-    sy0, sy1 = y0 + 0.5, y1 - 0.5
+    if len(subj) < 2:
+        return ""
+    return subj
 
-    sel = [c for c in chars if sx0 < (c["x0"]+c["x1"])/2 < sx1 and sy0 < (c["top"]+c["bottom"])/2 < sy1]
-    if not sel: return ""
+def cell_text_from_chars(chars, x0, x1, y0, y1, y_tol=1.2, x_gap=1.0, x_pad_left=1.4, x_pad_right=0.35, y_pad=0.2):
+    sx0 = x0 + x_pad_left
+    sx1 = x1 - x_pad_right
+    sy0 = y0 + y_pad
+    sy1 = y1 - y_pad
+
+    if sx1 <= sx0: sx0, sx1 = x0, x1
+    if sy1 <= sy0: sy0, sy1 = y0, y1
+
+    sel = []
+    for ch in chars:
+        cx = (ch["x0"] + ch["x1"]) / 2
+        cy = (ch["top"] + ch["bottom"]) / 2
+        if (sx0 < cx < sx1) and (sy0 < cy < sy1):
+            sel.append(ch)
+
+    if not sel:
+        return ""
 
     sel.sort(key=lambda c: (c["top"], c["x0"]))
-    
-    # Reconstruim textul linie cu linie
+
     lines = []
     cur = []
     cur_top = None
     for ch in sel:
-        if cur_top is None or abs(ch["top"] - cur_top) <= 2.0:
+        if cur_top is None or abs(ch["top"] - cur_top) <= y_tol:
             cur.append(ch)
             cur_top = ch["top"] if cur_top is None else (cur_top * 0.7 + ch["top"] * 0.3)
         else:
             lines.append(cur)
             cur = [ch]
             cur_top = ch["top"]
-    if cur: lines.append(cur)
+    if cur:
+        lines.append(cur)
 
     out_lines = []
     for line in lines:
         line.sort(key=lambda c: c["x0"])
-        s = "".join([c["text"] for c in line]) # Simplificat, uneori spațiile sunt tricky
+        s = ""
+        prev = None
+        for ch in line:
+            if prev is not None and (ch["x0"] - prev["x1"]) > x_gap:
+                s += " "
+            s += ch["text"]
+            prev = ch
         out_lines.append(s.strip())
 
-    return " ".join(out_lines).strip()
+    return re.sub(r"\s+", " ", " ".join([l for l in out_lines if l]).strip())
 
 def parse_day_block(day_crop, x_bounds, columns_cfg):
     y_bounds = get_y_bounds_for_crop(day_crop)
-    if len(y_bounds) < 3: return {}
+    if len(y_bounds) < 5:
+        return {}
 
     chars = day_crop.chars
     n_rows = len(y_bounds) - 1
-    
-    # Construim grila
-    grid = []
-    for r in range(n_rows):
-        row_data = []
-        ry0, ry1 = y_bounds[r], y_bounds[r+1]
-        for c in range(len(x_bounds) - 1):
-            cx0, cx1 = x_bounds[c], x_bounds[c+1]
-            row_data.append(cell_text_from_chars(chars, cx0, cx1, ry0, ry1))
-        grid.append(row_data)
+    n_cols = len(x_bounds) - 1
 
-    # Identificăm rândul cu clasele (Header)
-    header_r = -1
-    best_score = 0
-    for r in range(min(5, len(grid))):
-        # Numărăm câte clase cunoscute apar în rândul acesta
-        score = sum(1 for txt in grid[r] if normalize_subject(txt) in columns_cfg)
+    grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
+    for r in range(n_rows):
+        ry0, ry1 = y_bounds[r], y_bounds[r + 1]
+        for c in range(n_cols):
+            cx0, cx1 = x_bounds[c], x_bounds[c + 1]
+            grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1)
+
+    header_r = None
+    best_score = -1
+    for r in range(min(10, n_rows)):
+        score = sum(1 for lab in columns_cfg[1:] if lab in grid[r])
         if score > best_score:
             best_score = score
             header_r = r
-    
-    if header_r == -1 or best_score < 2:
+
+    if header_r is None or best_score < 3:
         return {}
 
-    # Mapăm indexul coloanei la numele Clasei
-    col_map = {}
-    for c_idx, text in enumerate(grid[header_r]):
-        clean = normalize_subject(text)
-        if clean in columns_cfg:
-            col_map[c_idx] = clean
-        # Fallback: dacă textul e gol dar poziția corespunde cu config-ul
-        elif c_idx + 1 < len(columns_cfg): 
-             # Presupunem că ordinea e păstrată (Time, 9A, 9B...)
-             col_map[c_idx] = columns_cfg[c_idx + 1]
+    col_to_class = {c: columns_cfg[c] for c in range(1, min(len(columns_cfg), n_cols))}
 
-    schedule = {cls: [] for cls in columns_cfg[1:]}
-    
+    day_schedule = {cls: [] for cls in columns_cfg[1:]}
     for r in range(header_r + 1, n_rows):
-        row_items = grid[r]
-        time_txt = row_items[0] if row_items else ""
-        
-        if not TIME_RE.match(time_txt):
+        time_txt = (grid[r][0] or "").strip()
+        if not is_time_slot(time_txt):
             continue
 
-        for c_idx, subj_raw in enumerate(row_items):
-            if c_idx not in col_map: continue
-            cls_name = col_map[c_idx]
-            
-            subj = normalize_subject(subj_raw)
-            if subj and subj not in columns_cfg:
-                # Format: "Ora | Materie"
-                schedule[cls_name].append(f"{time_txt} | {subj}")
+        for c, cls in col_to_class.items():
+            if c >= len(grid[r]): continue
+            subj = normalize_subject(grid[r][c])
+            if not subj:
+                continue
+            if subj in columns_cfg:
+                continue
+            day_schedule[cls].append(f"{time_txt} | {subj}")
 
-    return {k: v for k, v in schedule.items() if v}
+    return {k: v for k, v in day_schedule.items() if v}
 
 def parse_pdf(pdf_path, columns_cfg):
     final = {}
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[0]
-        
-        # Detectăm coloanele (cu fallback pentru ultima coloană)
         x_bounds = get_global_x_bounds(page, len(columns_cfg) - 1)
-        
-        # Găsim zonele pentru zile (LUNI, MARTI...)
-        words = page.extract_words()
-        zones = []
-        for w in words:
-            if w["text"].upper() in DAY_MARKERS:
-                zones.append({"name": DAY_MARKERS[w["text"].upper()], "top": w["top"]})
-        zones.sort(key=lambda z: z["top"])
+
+        zones = find_day_zones(page)
+        if not zones:
+            return {}
 
         for i, z in enumerate(zones):
-            day_name = z["name"]
-            y_start = z["top"] - 5
-            y_end = zones[i+1]["top"] - 10 if i+1 < len(zones) else page.height
-            
-            crop = page.crop((0, y_start, page.width, y_end))
-            day_data = parse_day_block(crop, x_bounds, columns_cfg)
-            
-            for cls, lessons in day_data.items():
-                if cls not in final: final[cls] = {}
-                if day_name not in final[cls]: final[cls][day_name] = []
-                final[cls][day_name].extend(lessons)
-                
-                # Eliminăm duplicatele
-                final[cls][day_name] = list(dict.fromkeys(final[cls][day_name]))
+            day_name = z["day"]
+            y_start = max(0, z["top"] - 8)
+            y_end = zones[i + 1]["top"] - 6 if i + 1 < len(zones) else page.height
 
+            crop = page.crop((0, y_start, page.width, y_end))
+            day_block = parse_day_block(crop, x_bounds, columns_cfg)
+
+            for cls, entries in day_block.items():
+                final.setdefault(cls, {})
+                final[cls].setdefault(day_name, [])
+                for e in entries:
+                    if e not in final[cls][day_name]:
+                        final[cls][day_name].append(e)
     return final
+
+def notify_worker(title, body, data):
+    if not WORKER_AUTH_KEY:
+        print("No WORKER_AUTH_KEY set")
+        return
+    try:
+        requests.post(
+            f"{WORKER_NOTIFY_URL}?key={WORKER_AUTH_KEY}",
+            json={"title": title, "body": body, "data": data},
+            timeout=30,
+        )
+    except Exception as e:
+        print("Worker notify failed:", repr(e))
 
 def main():
     urls = get_latest_pdf_urls()
     if not urls:
-        print("Nu am găsit PDF-uri.")
+        print("No PDF links found.")
+        return
+
+    combined_hash = hashlib.sha256()
+    temp_files = {}
+
+    for key, url in urls.items():
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=60)
+            resp.raise_for_status()
+            fname = f"temp_{key}.pdf"
+            with open(fname, "wb") as f:
+                f.write(resp.content)
+            
+            with open(fname, "rb") as f:
+                combined_hash.update(f.read())
+            
+            temp_files[key] = fname
+        except Exception as e:
+            print(f"Failed downloading {key}: {e}")
+
+    new_hash = combined_hash.hexdigest()
+    old_hash = None
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                old = json.load(f)
+                old_hash = old.get("pdf_hash")
+        except:
+            pass
+
+    if old_hash == new_hash:
+        print("PDFs unchanged.")
+        for f in temp_files.values():
+            try: os.remove(f)
+            except: pass
         return
 
     full_schedule = {}
-    
-    # Descărcăm și parsăm LICEUL
-    if "liceu" in urls:
-        print(f"Descarc Liceu: {urls['liceu']}")
-        with open("temp_liceu.pdf", "wb") as f:
-            f.write(requests.get(urls["liceu"], headers=HEADERS).content)
-        try:
-            data = parse_pdf("temp_liceu.pdf", COLS_LICEU)
-            full_schedule.update(data)
-            print(f"Liceu parsat: {len(data)} clase.")
-        except Exception as e:
-            print(f"Eroare Liceu: {e}")
-            
-    # Descărcăm și parsăm GIMNAZIUL
-    if "gimnaziu" in urls:
-        print(f"Descarc Gimnaziu: {urls['gimnaziu']}")
-        with open("temp_gimnaziu.pdf", "wb") as f:
-            f.write(requests.get(urls["gimnaziu"], headers=HEADERS).content)
-        try:
-            data = parse_pdf("temp_gimnaziu.pdf", COLS_GIMNAZIU)
-            full_schedule.update(data)
-            print(f"Gimnaziu parsat: {len(data)} clase.")
-        except Exception as e:
-            print(f"Eroare Gimnaziu: {e}")
 
-    # Curățenie
-    for f in ["temp_liceu.pdf", "temp_gimnaziu.pdf"]:
-        if os.path.exists(f): os.remove(f)
+    if "liceu" in temp_files:
+        print("Parsing Liceu...")
+        try:
+            s_liceu = parse_pdf(temp_files["liceu"], COLS_LICEU)
+            full_schedule.update(s_liceu)
+        except Exception as e:
+            print(f"Error parsing Liceu: {e}")
 
-    # Salvare JSON
-    output = {
+    if "gimnaziu" in temp_files:
+        print("Parsing Gimnaziu...")
+        try:
+            s_gimn = parse_pdf(temp_files["gimnaziu"], COLS_GIMNAZIU)
+            full_schedule.update(s_gimn)
+        except Exception as e:
+            print(f"Error parsing Gimnaziu: {e}")
+
+    out = {
         "updated_at": datetime.now(RO_TZ).strftime("%d.%m.%Y %H:%M"),
+        "pdf_hash": new_hash,
         "source_pdf": list(urls.values()),
-        "schedule": full_schedule
+        "schedule": full_schedule,
     }
-    
+
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
-    
-    print("timetable.json generat cu succes!")
+        json.dump(out, f, ensure_ascii=False, indent=2)
+
+    for f in temp_files.values():
+        try: os.remove(f)
+        except: pass
+
+    print("Updated timetable.json | Total classes:", len(full_schedule))
+
+    notify_worker(
+        title="Schedule updated (Liceu + Gimnaziu)",
+        body="New timetables detected. Refresh app.",
+        data={"updated_at": out["updated_at"], "hash": new_hash}
+    )
 
 if __name__ == "__main__":
     main()
