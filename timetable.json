@@ -1,9 +1,9 @@
 {
-  "updated_at": "02.02.2026 14:49",
+  "updated_at": "02.02.2026 17:40",
   "sources": {
     "liceu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/01/orar2025-2026-S19-2-6.02-Liceu.pdf",
-      "pdf_hash": "6fd004d3e86577fd44295a32212b107ea7f3be14ed4fe102a24620bc4026a471"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/02/orar2025-2026-S19-2-6.02-Liceu.pdf",
+      "pdf_hash": "ce1691fb317647d57669eb71895917a05c846e7027c81c4ba0120cf411d5f5f6"
     },
     "gimnaziu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/01/ORAR-2025-2026_S5m3-gimnaziu.pdf",
@@ -397,11 +397,12 @@
         "14:50-15:35 | InfLb1-Fl"
       ],
       "Marti": [
-        "8:00-8:50 | InfLb-Fl",
+        "7:20-8:00 | InfIb2-Fl",
+        "8:00-8:50 | InfIb2-Fl",
         "9:00-9:50 | Fiz-St",
         "10:00-10:50 | Mat-RC",
         "11:00-11:50 | Info-Fl",
-        "12:00-12:50 | IeH-Li",
+        "12:00-12:50 | InfIb2-Fl",
         "13:00-13:45 | LucrPr-M"
       ],
       "Miercuri": [
@@ -409,11 +410,8 @@
         "8:00-8:50 | Rom-LR",
         "9:00-9:50 | Mat-RC",
         "10:00-10:50 | Edfiz-Fus",
-        "11:00-11:50 | Ger-Iac",
-        "12:00-12:50 | Info-Fl",
-        "13:00-13:45 | InfIb2-Fl",
-        "14:00-14:45 | InfIb2-Fl",
-        "14:50-15:35 | InfIb2-Fl"
+        "11:00-11:50 | InfLb-Fl",
+        "12:00-12:50 | Info-Fl"
       ],
       "Joi": [
         "7:20-8:00 | Fiz-St",
@@ -426,10 +424,12 @@
         "14:00-14:45 | dsp-Fus"
       ],
       "Vineri": [
+        "8:00-8:50 | Ger-Iac",
         "9:00-9:50 | Ger-Iac",
         "10:00-10:50 | ist-La",
         "11:00-11:50 | Mat-RC",
         "12:00-12:50 | Bio-Mun",
+        "13:00-13:45 | IeH-Li",
         "14:00-14:45 | Relort-M"
       ]
     },
