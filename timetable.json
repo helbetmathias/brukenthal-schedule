@@ -1,5 +1,5 @@
 {
-  "updated_at": "02.02.2026 21:08",
+  "updated_at": "03.02.2026 01:32",
   "sources": {
     "liceu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/02/orar2025-2026-S19-2-6.02-Liceu.pdf",
@@ -7,7 +7,7 @@
     },
     "gimnaziu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/01/ORAR-2025-2026_S5m3-gimnaziu.pdf",
-      "pdf_hash": "wddwdwwdwdwdwdwdwddw"
+      "pdf_hash": "fa0de6483bcb8e5417cd619553c7fcc40f7a076aeafaad85e9b8183b0a14bf2a"
     }
   },
   "schedule": {
