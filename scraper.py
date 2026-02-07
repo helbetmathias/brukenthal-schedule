@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Set
 
 RO_TZ = ZoneInfo("Europe/Bucharest")
 URL = "https://brukenthal.ro/"
@@ -31,6 +31,11 @@ GIMNAZIU_CLASSES = [
     "7A", "7B", "7C", "7D",
     "8A", "8B", "8C", "8D",
 ]
+
+KIND_TO_CLASSES: Dict[str, List[str]] = {
+    "liceu": LICEU_CLASSES,
+    "gimnaziu": GIMNAZIU_CLASSES,
+}
 
 DAY_MARKERS = {
     "MONTAG": "Luni",
@@ -96,40 +101,123 @@ def normalize_subject(subj: str) -> str:
     return subj
 
 
-def get_latest_pdf_url(kind: str) -> Optional[str]:
-    """
-    kind: 'liceu' or 'gimnaziu'
-    """
+# ---------------------------
+# NEW: robust PDF discovery + kind detection
+# ---------------------------
+
+def get_all_pdf_urls() -> List[str]:
     html = requests.get(URL, headers=HEADERS, timeout=30).text
+    hrefs = re.findall(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
+    urls = [urljoin(URL, h) for h in hrefs]
 
-    # all pdf hrefs
-    pdfs = re.findall(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
-    if not pdfs:
+    # dedupe, keep order
+    seen: Set[str] = set()
+    out: List[str] = []
+    for u in urls:
+        u = u.split("#", 1)[0]
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def url_score(u: str) -> List[int]:
+    nums = re.findall(r"\d+", u)
+    return [int(n) for n in nums] if nums else [0]
+
+
+def class_token_regex(cls: str) -> str:
+    # allow "10 A" or "10A"
+    digits, letter = cls[:-1], cls[-1]
+    return rf"\b{re.escape(digits)}\s*{re.escape(letter)}\b"
+
+
+def detect_pdf_kind_fast(pdf_path: str) -> Optional[str]:
+    """
+    Return 'liceu' / 'gimnaziu' / None by scanning first page text for class tokens.
+    """
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            page = pdf.pages[0]
+            text = page.extract_text() or ""
+            text = normalize_ws(text)
+
+            liceu_hits = sum(1 for c in LICEU_CLASSES if re.search(class_token_regex(c), text))
+            gim_hits = sum(1 for c in GIMNAZIU_CLASSES if re.search(class_token_regex(c), text))
+
+            # fallback: sometimes extract_text is poor; try words
+            if max(liceu_hits, gim_hits) < 4:
+                words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
+                wtext = normalize_ws(" ".join(w.get("text", "") for w in words))
+                liceu_hits = max(liceu_hits, sum(1 for c in LICEU_CLASSES if re.search(class_token_regex(c), wtext)))
+                gim_hits = max(gim_hits, sum(1 for c in GIMNAZIU_CLASSES if re.search(class_token_regex(c), wtext)))
+
+            if liceu_hits >= 4 and liceu_hits > gim_hits:
+                return "liceu"
+            if gim_hits >= 4 and gim_hits > liceu_hits:
+                return "gimnaziu"
+            return None
+    except Exception:
         return None
 
-    kind_l = kind.lower()
-    if kind_l == "liceu":
-        keywords = ("liceu",)
-    else:
-        keywords = ("gimnaziu", "gimnazi")
 
-    candidates: List[str] = []
-    for href in pdfs:
-        low = href.lower()
-        if any(k in low for k in keywords):
-            candidates.append(urljoin(URL, href))
+def pick_latest_pdfs_by_kind(max_probe: int = 8) -> Dict[str, Dict[str, str]]:
+    """
+    Downloads up to max_probe newest-ish PDFs and assigns them to liceu/gimnaziu
+    based on content. Returns:
+      {
+        "liceu": {"url": ..., "tmp": ...},
+        "gimnaziu": {"url": ..., "tmp": ...}
+      }
+    Keeps temp files for the winners (caller will parse & delete).
+    """
+    pdf_urls = get_all_pdf_urls()
+    if not pdf_urls:
+        return {}
 
-    if not candidates:
-        return None
+    pdf_urls.sort(key=url_score, reverse=True)
 
-    # sort by numbers in URL (year/month/day/series etc)
-    def score(u: str) -> List[int]:
-        nums = re.findall(r"\d+", u)
-        return [int(n) for n in nums] if nums else [0]
+    found: Dict[str, Dict[str, str]] = {}
+    for i, u in enumerate(pdf_urls[:max_probe]):
+        tmp = f"temp_probe_{i}.pdf"
+        try:
+            download_to_tmp(u, tmp)
+        except Exception:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
+            continue
 
-    candidates.sort(key=score, reverse=True)
-    return candidates[0]
+        kind = detect_pdf_kind_fast(tmp)
 
+        # If can't detect, discard (or you can keep and try heavier logic)
+        if kind not in ("liceu", "gimnaziu"):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            continue
+
+        # keep first (newest by our sort) per kind
+        if kind not in found:
+            found[kind] = {"url": u, "tmp": tmp}
+        else:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+        if "liceu" in found and "gimnaziu" in found:
+            break
+
+    return found
+
+
+# ---------------------------
+# Existing parsing logic (unchanged)
+# ---------------------------
 
 def find_day_zones(page) -> List[Dict[str, float]]:
     words = page.extract_words(x_tolerance=2, y_tolerance=2)
@@ -366,14 +454,12 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
             # merge notes
             for cls, note in day_notes.items():
                 final_notes.setdefault(cls, {})
-                # if already exists and different, keep both
                 if day_name in final_notes[cls] and final_notes[cls][day_name] != note:
                     if note not in final_notes[cls][day_name]:
                         final_notes[cls][day_name] = f"{final_notes[cls][day_name]}; {note}"
                 else:
                     final_notes[cls][day_name] = note
 
-    # drop empties (just in case)
     final_notes = {cls: dn for cls, dn in final_notes.items() if dn}
     return final_schedule, final_notes
 
@@ -412,44 +498,51 @@ def load_old_state() -> dict:
 
 
 def main() -> None:
-    liceu_url = get_latest_pdf_url("liceu")
-    gimnaziu_url = get_latest_pdf_url("gimnaziu")
-
-    if not liceu_url and not gimnaziu_url:
-        print("No PDF links found on site.")
+    # Discover latest PDFs by content (robust against missing/renamed/swapped links)
+    found = pick_latest_pdfs_by_kind(max_probe=10)  # you can tweak
+    if not found:
+        print("No usable timetable PDFs found on site.")
         return
 
     old = load_old_state()
     old_sources = (old.get("sources") or {})
-    old_hash_liceu = ((old_sources.get("liceu") or {}).get("pdf_hash"))
-    old_hash_gimnaziu = ((old_sources.get("gimnaziu") or {}).get("pdf_hash"))
+    old_schedule: Dict[str, Dict[str, List[str]]] = (old.get("schedule") or {})
+    old_day_notes: Dict[str, Dict[str, str]] = (old.get("day_notes") or {})
 
-    sources_out: Dict[str, Dict[str, str]] = {}
+    # Start from old state so if one PDF is missing this week, it doesn't vanish from JSON
+    schedule_all: Dict[str, Dict[str, List[str]]] = dict(old_schedule)
+    day_notes_all: Dict[str, Dict[str, str]] = dict(old_day_notes)
 
-    schedule_all: Dict[str, Dict[str, List[str]]] = {}
-    day_notes_all: Dict[str, Dict[str, str]] = {}
+    sources_out: Dict[str, Dict[str, str]] = dict(old_sources)
+    changed_any = (not os.path.exists(OUTPUT_FILE))
 
-    changed_any = False
+    for kind, info in found.items():
+        pdf_url = info["url"]
+        tmp = info["tmp"]
+        expected_classes = KIND_TO_CLASSES[kind]
 
-    # --- LICEU ---
-    if liceu_url:
-        tmp = "temp_liceu.pdf"
-        download_to_tmp(liceu_url, tmp)
-        liceu_hash = file_hash(tmp)
+        pdf_hash = file_hash(tmp)
+        old_hash = ((old_sources.get(kind) or {}).get("pdf_hash"))
 
-        sources_out["liceu"] = {"source_pdf": liceu_url, "pdf_hash": liceu_hash}
-        if liceu_hash != old_hash_liceu:
+        sources_out[kind] = {"source_pdf": pdf_url, "pdf_hash": pdf_hash}
+        if pdf_hash != old_hash:
             changed_any = True
 
-        liceu_schedule, liceu_notes = parse_pdf(tmp, LICEU_CLASSES)
+        # remove old entries for this kind (so they get replaced cleanly)
+        for cls in expected_classes:
+            schedule_all.pop(cls, None)
+            day_notes_all.pop(cls, None)
 
+        # parse + merge
         try:
-            os.remove(tmp)
-        except OSError:
-            pass
+            new_schedule, new_notes = parse_pdf(tmp, expected_classes)
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
-        # merge
-        for cls, days in liceu_schedule.items():
+        for cls, days in new_schedule.items():
             schedule_all.setdefault(cls, {})
             for day, entries in days.items():
                 schedule_all[cls].setdefault(day, [])
@@ -457,7 +550,7 @@ def main() -> None:
                     if e not in schedule_all[cls][day]:
                         schedule_all[cls][day].append(e)
 
-        for cls, dn in liceu_notes.items():
+        for cls, dn in new_notes.items():
             day_notes_all.setdefault(cls, {})
             for day, note in dn.items():
                 if day in day_notes_all[cls] and day_notes_all[cls][day] != note:
@@ -466,45 +559,8 @@ def main() -> None:
                 else:
                     day_notes_all[cls][day] = note
 
-    # --- GIMNAZIU ---
-    if gimnaziu_url:
-        tmp = "temp_gimnaziu.pdf"
-        download_to_tmp(gimnaziu_url, tmp)
-        gimnaziu_hash = file_hash(tmp)
-
-        sources_out["gimnaziu"] = {"source_pdf": gimnaziu_url, "pdf_hash": gimnaziu_hash}
-        if gimnaziu_hash != old_hash_gimnaziu:
-            changed_any = True
-
-        gim_schedule, gim_notes = parse_pdf(tmp, GIMNAZIU_CLASSES)
-
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-
-        # merge
-        for cls, days in gim_schedule.items():
-            schedule_all.setdefault(cls, {})
-            for day, entries in days.items():
-                schedule_all[cls].setdefault(day, [])
-                for e in entries:
-                    if e not in schedule_all[cls][day]:
-                        schedule_all[cls][day].append(e)
-
-        for cls, dn in gim_notes.items():
-            day_notes_all.setdefault(cls, {})
-            for day, note in dn.items():
-                if day in day_notes_all[cls] and day_notes_all[cls][day] != note:
-                    if note not in day_notes_all[cls][day]:
-                        day_notes_all[cls][day] = f"{day_notes_all[cls][day]}; {note}"
-                else:
-                    day_notes_all[cls][day] = note
-
-    # If both PDFs unchanged AND output exists, you can skip writing.
-    # (But if you want to always refresh, remove this block.)
     if not changed_any and os.path.exists(OUTPUT_FILE):
-        print("Both PDFs unchanged, skipping update.")
+        print("No detected changes, skipping update.")
         return
 
     out = {
