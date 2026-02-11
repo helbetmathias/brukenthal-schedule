@@ -1,13 +1,13 @@
 {
-  "updated_at": "10.02.2026 17:02",
+  "updated_at": "11.02.2026 16:57",
   "sources": {
     "liceu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/02/orar2025-2026-S20-9-13.02liceu-1-1.pdf",
       "pdf_hash": "f73b9dfd1108c3f8f731e0223191805982b6e745bf6ff69c3077ab5e61a30ca3"
     },
     "gimnaziu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/02/ORAR-2025-2026_S6m3_var2.pdf",
-      "pdf_hash": "98b11d7a4f5420f6ca3b64205615772fe022dad5cb8263cae4b8f31a55be0562"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/02/ORAR-2025-2026_S6m3-1-1.pdf",
+      "pdf_hash": "da0393cc2386ae17d2d2de007f7363f69a2b64c88e2fdbf49c586450b82fa179"
     }
   },
   "schedule": {
@@ -891,9 +891,8 @@
       "Vineri": [
         "14:00-14:45 | Ger-SO",
         "14:50-15:35 | D-SO",
-        "15:45-16:30 | Eng-SC",
-        "16:35-17:20 | Muz-PS",
-        "17:30-18:15 | Des-VO"
+        "15:45-16:30 | Des-VO",
+        "16:35-17:20 | Muz-PS"
       ]
     },
     "6A": {
@@ -978,11 +977,10 @@
       ],
       "Vineri": [
         "14:00-14:45 | Geo-MG",
-        "14:50-15:35 | Eng-SC",
+        "14:50-15:35 | Ist-BT",
         "15:45-16:30 | Ger-CM",
         "16:35-17:20 | Mat-CI",
-        "17:30-18:15 | Ist-BT",
-        "18:20-19:05 | Des-VO"
+        "17:30-18:15 | Des-VO"
       ]
     },
     "6C": {
@@ -1388,7 +1386,9 @@
         "13:00-13:45 | D-MI",
         "14:00-14:45 | Rom-RC",
         "14:50-15:35 | Rom-RC",
-        "15:45-16:30 | Ger-MI"
+        "15:45-16:30 | Ger-MI",
+        "16:35-17:20 | Ger-MI",
+        "17:30-18:15 | Muz-PS"
       ],
       "Vineri": [
         "13:00-13:45 | Geo-MG",
