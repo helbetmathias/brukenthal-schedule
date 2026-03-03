@@ -1,13 +1,13 @@
 {
-  "updated_at": "01.03.2026 12:29",
+  "updated_at": "03.03.2026 07:52",
   "sources": {
     "liceu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/02/orar2025-2026def-S22-2-6.03.pdf",
       "pdf_hash": "baecd70152daef4d7c1fddfd8c259f87a789c8a0cf46510785fb1fc2da5fbf75"
     },
     "gimnaziu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S1m4_var2_fara-Geo-MG.pdf",
-      "pdf_hash": "b71360ad6df57ab052358bb60c730a574f6afcf55d8952ae5ef6b6a85f02d59d"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S1m4_var3.pdf",
+      "pdf_hash": "2c797a587bf6c93a92980b88b2660a9e675dd5462688f58b1c7171ae24c6435a"
     }
   },
   "schedule": {
@@ -474,15 +474,13 @@
         "19:10-19:55 | Chi-DP"
       ],
       "Joi": [
-        "13:00-13:45 | Mat-DM",
-        "14:00-14:45 | Rom-DL",
-        "14:50-15:35 | Rom-DL",
         "15:45-16:30 | Tic-DD",
         "16:35-17:20 | Eds-BA",
         "17:30-18:15 | Ger-GB",
         "18:20-19:05 | Ger-GB"
       ],
       "Vineri": [
+        "13:00-13:45 | Mat-DM",
         "14:00-14:45 | Fiz-PG",
         "14:50-15:35 | Fiz-PG",
         "15:45-16:30 | Ell-RL",
@@ -523,10 +521,9 @@
         "13:00-13:45 | Edt-IA",
         "14:00-14:45 | Bio-MC",
         "14:50-15:35 | Tic-DD",
-        "15:45-16:30 | Rom-DL",
-        "16:35-17:20 | Ger-GB",
-        "17:30-18:15 | Fiz-BS",
-        "18:20-19:05 | Fiz-BS"
+        "15:45-16:30 | Ger-GB",
+        "16:35-17:20 | Fiz-BS",
+        "17:30-18:15 | Fiz-BS"
       ],
       "Vineri": [
         "14:00-14:45 | Mat-DM",
@@ -565,13 +562,11 @@
         "16:35-17:20 | Fiz-BD"
       ],
       "Joi": [
-        "13:00-13:45 | Pdl-DL",
         "14:00-14:45 | Tic-DD",
         "14:50-15:35 | Eng-SC",
         "15:45-16:30 | Mat-MH",
         "16:35-17:20 | Mat-MH",
-        "17:30-18:15 | Eng-SC",
-        "19:10-19:55 | Fb-VM"
+        "17:30-18:15 | Eng-SC"
       ],
       "Vineri": [
         "13:00-13:45 | Ger-GB",
@@ -610,7 +605,6 @@
         "18:20-19:05 | Ist-LI"
       ],
       "Joi": [
-        "13:00-13:45 | Pdl-DL",
         "14:00-14:45 | Mat-MH",
         "14:50-15:35 | Mat-MH",
         "15:45-16:30 | Edf-VM",
