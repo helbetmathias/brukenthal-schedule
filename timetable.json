@@ -1,9 +1,9 @@
 {
-  "updated_at": "09.03.2026 18:01",
+  "updated_at": "10.03.2026 04:24",
   "sources": {
     "liceu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/orar2025-2026-S23-9-13.03-1.pdf",
-      "pdf_hash": "70f6432134d8fd9ac2298b7703ce2c55e05406695c028990a798847b69843fb2"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/orar2025-2026-S23-9-13.03-2.pdf",
+      "pdf_hash": "e0141bdc6f047ebefe7e0de654a67c7569b2d6548f2c204261141edb3ff6893a"
     },
     "gimnaziu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S2m4-2.pdf",
@@ -18,18 +18,17 @@
         "10:00-10:50 | Fiz-Bac",
         "11:00-11:50 | Ger-Iac",
         "12:00-12:50 | Tic-DD",
-        "13:00-13:45 | InfLb1-DD",
-        "14:00-14:45 | InfLb1-DD",
-        "14:50-15:35 | InfLb1-DD"
+        "13:00-13:45 | InfLb1-D",
+        "14:00-14:45 | InfLb1-D",
+        "14:50-15:35 | InfLb1-D"
       ],
       "Marti": [
         "7:20-8:00 | Eng-Va",
         "8:00-8:50 | Eng-Va",
-        "9:00-9:50 | Info-Fl",
+        "9:00-9:50 | Bio-Mun",
         "10:00-10:50 | Mat-HB",
         "11:00-11:50 | Bio-Mun",
         "12:00-12:50 | Rom-Ba",
-        "13:00-13:45 | Bio-Mun",
         "14:00-14:45 | AJ-Ka9A"
       ],
       "Miercuri": [
@@ -44,6 +43,7 @@
         "14:50-15:35 | InfIb2-DD"
       ],
       "Joi": [
+        "8:00-8:50 | Info-Fl",
         "9:00-9:50 | Rom-Ba",
         "10:00-10:50 | Rom-Ba",
         "11:00-11:50 | Mat-HB",
@@ -80,7 +80,7 @@
         "11:00-11:50 | Bio-GD",
         "12:00-12:50 | Geo-SC",
         "13:00-13:45 | Rom-LR",
-        "14:00-14:45 | /Rort-Ma"
+        "14:00-14:45 | D/Rort-Ma"
       ],
       "Miercuri": [
         "8:00-8:50 | Mat-HB",
@@ -171,7 +171,7 @@
         "11:00-11:50 | Geo-SC",
         "12:00-12:50 | Muz-SP",
         "13:00-13:45 | Log-Pop",
-        "14:00-14:45 | 9ABCD"
+        "14:00-14:45 | H9ABCD"
       ],
       "Miercuri": [
         "7:20-8:00 | Rom-Tr",
@@ -284,7 +284,7 @@
       ],
       "Vineri": [
         "8:00-8:50 | Edfiz-Fus",
-        "9:00-9:50 | f-Fus Aula",
+        "9:00-9:50 | -Fus Aula",
         "10:00-10:50 | Bio-GD",
         "11:00-11:50 | Muz-SP",
         "12:00-12:50 | Chi-Tud",
@@ -395,10 +395,9 @@
         "14:50-15:35 | InfLb1-Fl"
       ],
       "Marti": [
-        "8:00-8:50 | InfLb-Fl",
         "9:00-9:50 | Fiz-St",
         "10:00-10:50 | Mat-RC",
-        "11:00-11:50 | Info-Fl",
+        "11:00-11:50 | Mat-RC",
         "12:00-12:50 | IeH-Li",
         "14:00-14:45 | z Luc"
       ],
@@ -1447,7 +1446,7 @@
   },
   "day_notes": {
     "9A": {
-      "Luni": "9 A Sala 1",
+      "Luni": "Sala 1",
       "Marti": "Sala 1",
       "Miercuri": "Sala 1",
       "Joi": "Sala 1"
