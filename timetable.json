@@ -1,13 +1,13 @@
 {
-  "updated_at": "10.03.2026 04:24",
+  "updated_at": "11.03.2026 17:53",
   "sources": {
     "liceu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/orar2025-2026-S23-9-13.03-2.pdf",
-      "pdf_hash": "e0141bdc6f047ebefe7e0de654a67c7569b2d6548f2c204261141edb3ff6893a"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/orar2025-2026-S23-9-13.03-1-1.pdf",
+      "pdf_hash": "b823c795dd33888dcea9624662beb80fc9ff85dc175ed507181ca06c6673183b"
     },
     "gimnaziu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S2m4-2.pdf",
-      "pdf_hash": "6c75b9d096aa5ecaf9c37e8fa89d1b6d2e4bcf33627cbff0d69e11447c6227e2"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S2m4-3.pdf",
+      "pdf_hash": "1384dff39acdf94d9c65ccd78c3d2dc8e8d8151a820bae0a72d32dae7c2b4e22"
     }
   },
   "schedule": {
@@ -1052,10 +1052,10 @@
         "19:10-19:55 | Edf-CA"
       ],
       "Joi": [
-        "14:00-14:45 | Bio-ML, 33 Logischool",
+        "14:00-14:45 | Ger-CM, 33 Logischool",
         "14:50-15:35 | Istm-HM",
         "15:45-16:30 | Ger-CM",
-        "16:35-17:20 | Ger-CM",
+        "16:35-17:20 | Bio-ML",
         "17:30-18:15 | Bio-ML",
         "18:20-19:05 | Mg-KA"
       ],
