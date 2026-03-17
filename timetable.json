@@ -1,13 +1,13 @@
 {
-  "updated_at": "16.03.2026 17:04",
+  "updated_at": "17.03.2026 12:02",
   "sources": {
     "liceu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/orar2025-2026def-S24-16-20.03.pdf",
       "pdf_hash": "c4195f138b7a7694b75c92d74d9915f24512346f8d59aea622f7e3768f387be6"
     },
     "gimnaziu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S3m4_var2.pdf",
-      "pdf_hash": "ee78286f34ab9826bc25798513415624cdee4001127b999f3631f2fef4d7a0e4"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S3m4_var2-1.pdf",
+      "pdf_hash": "a14ae82dc4e05418b9427ebd025f0fb94a9a59d0cf359960931a52ca7b6357e9"
     }
   },
   "schedule": {
@@ -1049,11 +1049,11 @@
         "17:30-18:15 | Eng-MCP"
       ],
       "Miercuri": [
+        "13:00-13:45 | Ger-GB",
         "14:00-14:45 | Muz-PS",
         "14:50-15:35 | Bio-TT",
         "15:45-16:30 | Mat-DM",
-        "16:35-17:20 | Ger-GB",
-        "17:30-18:15 | Mat-DM"
+        "16:35-17:20 | Mat-DM"
       ],
       "Joi": [
         "14:00-14:45 | Edf-VM",
