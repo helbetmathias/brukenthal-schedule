@@ -1,13 +1,13 @@
 {
-  "updated_at": "17.03.2026 12:02",
+  "updated_at": "17.03.2026 17:01",
   "sources": {
     "liceu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/orar2025-2026def-S24-16-20.03.pdf",
       "pdf_hash": "c4195f138b7a7694b75c92d74d9915f24512346f8d59aea622f7e3768f387be6"
     },
     "gimnaziu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S3m4_var2-1.pdf",
-      "pdf_hash": "a14ae82dc4e05418b9427ebd025f0fb94a9a59d0cf359960931a52ca7b6357e9"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S3m4_var2-2.pdf",
+      "pdf_hash": "01f420dfedc839d4fbf1ce10be33d12af491e37854d3d437c6866a025c1349de"
     }
   },
   "schedule": {
@@ -875,7 +875,7 @@
         "19:10-19:55 | Rev-JH"
       ],
       "Miercuri": [
-        "13:00-13:45 | Mat-CI",
+        "13:00-13:45 | D-MC",
         "14:00-14:45 | Geo-MG",
         "14:50-15:35 | Bio-MC",
         "15:45-16:30 | Eng-SC",
@@ -892,7 +892,7 @@
         "19:10-19:55 | Mg-KA"
       ],
       "Vineri": [
-        "13:00-13:45 | D-MC",
+        "13:00-13:45 | Mat-CI",
         "14:00-14:45 | Muz-PS",
         "14:50-15:35 | Rom-RCI",
         "15:45-16:30 | Rom-RCI",
