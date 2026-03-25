@@ -1,13 +1,13 @@
 {
-  "updated_at": "25.03.2026 17:03",
+  "updated_at": "25.03.2026 19:07",
   "sources": {
     "liceu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/Orar-Liceu-S25-23-27-martie-1.pdf",
       "pdf_hash": "4abf968ac8a637cddabced8910c4e029dc0375fb5eb2ccfb4bb1b27bdcc78b16"
     },
     "gimnaziu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S4m4.pdf",
-      "pdf_hash": "d884f4ac6344633bc0d31e7cc37784529b2ce07023079d92eb64a1e532ca4bfd"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/03/gimnaziu_ORAR-2025-2026_S4m4-1.pdf",
+      "pdf_hash": "97fdcbd0ed17c618088685f91d0538e0d0d01b82bfa6c624271c1e8cde25c2ec"
     }
   },
   "schedule": {
@@ -38,12 +38,12 @@
         "17:30-18:15 | Chit-TT"
       ],
       "Joi": [
+        "13:00-13:45 | Eng-SC",
         "14:00-14:45 | Edf-AG",
         "14:50-15:35 | Edf-AG",
         "15:45-16:30 | Rom-RCI",
         "16:35-17:20 | Des-VO",
-        "17:30-18:15 | Geo-MG",
-        "18:20-19:05 | Eng-SC"
+        "17:30-18:15 | Geo-MG"
       ],
       "Vineri": [
         "13:00-13:45 | Relor-MI",
