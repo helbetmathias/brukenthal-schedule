@@ -2,7 +2,7 @@ name: Update Schedule
 
 on:
   schedule:
-    - cron: '0 * * * *'  # every hour (UTC)
+    - cron: '0 0 */2 * *'  # o dată la 2 zile (UTC)
   push:
     branches: ["main"]
   workflow_dispatch:
