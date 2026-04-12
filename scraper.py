@@ -74,6 +74,10 @@ def normalize_ws(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
 
 
+def normalize_compact(s: str) -> str:
+    return re.sub(r"\s+", "", (s or "")).upper()
+
+
 def normalize_time_text(s: str) -> str:
     s = normalize_ws(s)
     s = s.replace("–", "-")
@@ -101,16 +105,25 @@ def normalize_subject(subj: str) -> str:
     return subj
 
 
+def download_to_tmp(pdf_url: str, tmp_name: str) -> None:
+    resp = requests.get(pdf_url, headers=HEADERS, timeout=60)
+    resp.raise_for_status()
+    with open(tmp_name, "wb") as f:
+        f.write(resp.content)
+
+
 # ---------------------------
-# NEW: robust PDF discovery + kind detection
+# PDF discovery + kind detection
 # ---------------------------
 
 def get_all_pdf_urls() -> List[str]:
-    html = requests.get(URL, headers=HEADERS, timeout=30).text
+    resp = requests.get(URL, headers=HEADERS, timeout=30)
+    resp.raise_for_status()
+    html = resp.text
+
     hrefs = re.findall(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
     urls = [urljoin(URL, h) for h in hrefs]
 
-    # dedupe, keep order
     seen: Set[str] = set()
     out: List[str] = []
     for u in urls:
@@ -139,18 +152,23 @@ def detect_pdf_kind_fast(pdf_path: str) -> Optional[str]:
     try:
         with pdfplumber.open(pdf_path) as pdf:
             page = pdf.pages[0]
-            text = page.extract_text() or ""
-            text = normalize_ws(text)
+            text = normalize_ws(page.extract_text() or "")
 
-            liceu_hits = sum(1 for c in LICEU_CLASSES if re.search(class_token_regex(c), text))
-            gim_hits = sum(1 for c in GIMNAZIU_CLASSES if re.search(class_token_regex(c), text))
+            liceu_hits = sum(1 for c in LICEU_CLASSES if re.search(class_token_regex(c), text, flags=re.IGNORECASE))
+            gim_hits = sum(1 for c in GIMNAZIU_CLASSES if re.search(class_token_regex(c), text, flags=re.IGNORECASE))
 
             # fallback: sometimes extract_text is poor; try words
             if max(liceu_hits, gim_hits) < 4:
                 words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
                 wtext = normalize_ws(" ".join(w.get("text", "") for w in words))
-                liceu_hits = max(liceu_hits, sum(1 for c in LICEU_CLASSES if re.search(class_token_regex(c), wtext)))
-                gim_hits = max(gim_hits, sum(1 for c in GIMNAZIU_CLASSES if re.search(class_token_regex(c), wtext)))
+                liceu_hits = max(
+                    liceu_hits,
+                    sum(1 for c in LICEU_CLASSES if re.search(class_token_regex(c), wtext, flags=re.IGNORECASE))
+                )
+                gim_hits = max(
+                    gim_hits,
+                    sum(1 for c in GIMNAZIU_CLASSES if re.search(class_token_regex(c), wtext, flags=re.IGNORECASE))
+                )
 
             if liceu_hits >= 4 and liceu_hits > gim_hits:
                 return "liceu"
@@ -192,7 +210,6 @@ def pick_latest_pdfs_by_kind(max_probe: int = 8) -> Dict[str, Dict[str, str]]:
 
         kind = detect_pdf_kind_fast(tmp)
 
-        # If can't detect, discard (or you can keep and try heavier logic)
         if kind not in ("liceu", "gimnaziu"):
             try:
                 os.remove(tmp)
@@ -200,7 +217,6 @@ def pick_latest_pdfs_by_kind(max_probe: int = 8) -> Dict[str, Dict[str, str]]:
                 pass
             continue
 
-        # keep first (newest by our sort) per kind
         if kind not in found:
             found[kind] = {"url": u, "tmp": tmp}
         else:
@@ -216,7 +232,7 @@ def pick_latest_pdfs_by_kind(max_probe: int = 8) -> Dict[str, Dict[str, str]]:
 
 
 # ---------------------------
-# Existing parsing logic (unchanged)
+# Table parsing
 # ---------------------------
 
 def find_day_zones(page) -> List[Dict[str, float]]:
@@ -230,24 +246,6 @@ def find_day_zones(page) -> List[Dict[str, float]]:
     return zones
 
 
-def get_global_x_bounds(page) -> List[float]:
-    verts = [e for e in page.edges if e.get("orientation") == "v"]
-    xs = [e["x0"] for e in verts]
-    x_bounds = sorted(cluster_positions(xs, tol=1.5))
-
-    # prefer a window of 18 boundaries (17 columns = Time + 16 classes)
-    if len(x_bounds) > 18:
-        best = None
-        for i in range(0, len(x_bounds) - 17):
-            cand = x_bounds[i:i + 18]
-            width = cand[-1] - cand[0]
-            if best is None or width > best[0]:
-                best = (width, cand)
-        x_bounds = best[1]
-
-    return x_bounds
-
-
 def get_y_bounds_for_crop(page_crop) -> List[float]:
     horiz = [e for e in page_crop.edges if e.get("orientation") == "h"]
     ys = [e["top"] for e in horiz]
@@ -258,6 +256,70 @@ def get_y_bounds_for_crop(page_crop) -> List[float]:
         if not cleaned or abs(y - cleaned[-1]) > 1.0:
             cleaned.append(y)
     return cleaned
+
+
+def merge_small_gaps(bounds: List[float], min_gap: float = 8.0) -> List[float]:
+    """
+    Collapse fake extra boundaries created by thick/double vertical rules.
+    Real columns are wide; fake spacer columns are tiny.
+    """
+    if not bounds:
+        return bounds
+
+    out = [bounds[0]]
+    for x in bounds[1:]:
+        if x - out[-1] < min_gap:
+            out[-1] = (out[-1] + x) / 2.0
+        else:
+            out.append(x)
+    return out
+
+
+def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
+    """
+    Detect x boundaries for one day block only.
+    Expected boundaries:
+      left border
+      time/class separators
+      ...
+      right border
+
+    Count must be:
+      time column + N class columns => N+1 columns => N+2 boundaries
+    """
+    target_boundaries = len(expected_classes) + 2
+
+    verts = [e for e in day_crop.edges if e.get("orientation") == "v"]
+    xs = sorted(e["x0"] for e in verts)
+
+    if not xs:
+        raise RuntimeError("No vertical edges found in day crop.")
+
+    # First cluster nearby raw positions
+    x_bounds = cluster_positions(xs, tol=2.5)
+
+    # Then collapse fake tiny columns caused by thick/double borders
+    x_bounds = merge_small_gaps(x_bounds, min_gap=8.0)
+
+    # If too many boundaries remain, merge the smallest gaps until the count matches
+    while len(x_bounds) > target_boundaries:
+        gaps = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
+        i = min(range(len(gaps)), key=gaps.__getitem__)
+        merged = (x_bounds[i] + x_bounds[i + 1]) / 2.0
+        x_bounds = x_bounds[:i] + [merged] + x_bounds[i + 2:]
+
+    if len(x_bounds) != target_boundaries:
+        raise RuntimeError(
+            f"Bad x-boundary count: got {len(x_bounds)}, expected {target_boundaries}. "
+            f"Bounds={list(map(lambda x: round(x, 2), x_bounds))}"
+        )
+
+    widths = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
+    tiny = [round(w, 2) for w in widths if w < 12]
+    if tiny:
+        raise RuntimeError(f"Still have suspicious tiny columns after merge: {tiny}")
+
+    return x_bounds
 
 
 def cell_text_from_chars(
@@ -320,18 +382,31 @@ def cell_text_from_chars(
     return normalize_ws(" ".join([l for l in out_lines if l]))
 
 
+def header_cell_matches_class(cell_text: str, cls: str) -> bool:
+    txt = normalize_ws(cell_text)
+    if not txt:
+        return False
+
+    if re.search(class_token_regex(cls), txt, flags=re.IGNORECASE):
+        return True
+
+    return normalize_compact(txt) == cls.upper()
+
+
 def detect_header_row(grid: List[List[str]], expected_classes: List[str]) -> Optional[int]:
-    expected_set = set(expected_classes)
     best_r = None
     best_score = -1
 
-    # check first ~12 rows (header is near top)
+    # header should be near top
     for r in range(min(12, len(grid))):
-        row_text = " ".join(grid[r][1:])  # ignore time col
         found = set()
-        for cls in expected_set:
-            if re.search(rf"\b{re.escape(cls)}\b", row_text):
-                found.add(cls)
+
+        # ignore column 0 (time/day label column)
+        for cell in grid[r][1:]:
+            for cls in expected_classes:
+                if header_cell_matches_class(cell, cls):
+                    found.add(cls)
+
         score = len(found)
         if score > best_score:
             best_score = score
@@ -343,6 +418,7 @@ def detect_header_row(grid: List[List[str]], expected_classes: List[str]) -> Opt
     # need at least half of the classes to be confident
     if best_score < max(6, len(expected_classes) // 2):
         return None
+
     return best_r
 
 
@@ -351,25 +427,35 @@ def extract_header_note(header_cell: str, cls: str) -> str:
     if not txt:
         return ""
 
+    pattern = class_token_regex(cls)
+
     # if it contains the class token, strip it out
-    if re.search(rf"\b{re.escape(cls)}\b", txt):
-        note = re.sub(rf"\b{re.escape(cls)}\b", "", txt, count=1).strip()
+    if re.search(pattern, txt, flags=re.IGNORECASE):
+        note = re.sub(pattern, "", txt, count=1, flags=re.IGNORECASE).strip()
         note = normalize_ws(note)
         note = note.strip(" -–|,.;:").strip()
         return note
 
-    # fallback heuristic: sometimes OCR drops the class token but leaves "cab./lab."
+    # fallback heuristic
     low = txt.lower()
-    if any(h in low for h in NOTE_HINTS) and txt != cls:
+    if any(h in low for h in NOTE_HINTS) and normalize_compact(txt) != cls.upper():
         return txt.strip(" -–|,.;:").strip()
 
     return ""
 
 
-def parse_day_block(day_crop, x_bounds: List[float], expected_classes: List[str]) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
+def parse_day_block(
+    day_crop,
+    x_bounds: List[float],
+    expected_classes: List[str]
+) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     y_bounds = get_y_bounds_for_crop(day_crop)
     if len(y_bounds) < 5:
         return {}, {}
+
+    widths = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
+    if any(w < 12 for w in widths):
+        raise RuntimeError(f"Suspicious x bounds, tiny column widths found: {widths}")
 
     chars = day_crop.chars
     n_rows = len(y_bounds) - 1
@@ -386,11 +472,11 @@ def parse_day_block(day_crop, x_bounds: List[float], expected_classes: List[str]
     if header_r is None:
         return {}, {}
 
-    # fixed column mapping by index (stable even if header cell contains extra text)
+    # fixed column mapping by index: col 0 is times, cols 1..N are classes
     max_class_cols = min(len(expected_classes), n_cols - 1)
     col_to_class = {c: expected_classes[c - 1] for c in range(1, 1 + max_class_cols)}
 
-    # extract day notes from header row (cab./lab./etc)
+    # Extract notes from header row
     day_notes: Dict[str, str] = {}
     header_row = grid[header_r]
     for c, cls in col_to_class.items():
@@ -398,27 +484,28 @@ def parse_day_block(day_crop, x_bounds: List[float], expected_classes: List[str]
         if note:
             day_notes[cls] = note
 
-    # schedule entries
     day_schedule: Dict[str, List[str]] = {cls: [] for cls in expected_classes}
 
     for r in range(header_r + 1, n_rows):
         time_txt = normalize_ws(grid[r][0])
         if not is_time_slot(time_txt):
             continue
+
         time_out = normalize_time_text(time_txt)
 
         for c, cls in col_to_class.items():
             subj = normalize_subject(grid[r][c])
             if not subj:
                 continue
-            # prevent weird accidental echo of class labels in cells
-            if subj in expected_classes:
+
+            # prevent weird accidental echoes of class labels
+            if subj.upper() in {x.upper() for x in expected_classes}:
                 continue
+
             entry = f"{time_out} | {subj}"
             if entry not in day_schedule[cls]:
                 day_schedule[cls].append(entry)
 
-    # drop empties
     day_schedule = {k: v for k, v in day_schedule.items() if v}
     return day_schedule, day_notes
 
@@ -429,7 +516,6 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
 
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[0]
-        x_bounds = get_global_x_bounds(page)
 
         zones = find_day_zones(page)
         if not zones:
@@ -441,9 +527,12 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
             y_end = zones[i + 1]["top"] - 6 if i + 1 < len(zones) else page.height
 
             crop = page.crop((0, y_start, page.width, y_end))
+
+            # IMPORTANT: detect x-bounds per day block, not once globally for whole page
+            x_bounds = get_x_bounds_for_day(crop, expected_classes)
+
             day_block, day_notes = parse_day_block(crop, x_bounds, expected_classes)
 
-            # merge schedule
             for cls, entries in day_block.items():
                 final_schedule.setdefault(cls, {})
                 final_schedule[cls].setdefault(day_name, [])
@@ -451,7 +540,6 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
                     if e not in final_schedule[cls][day_name]:
                         final_schedule[cls][day_name].append(e)
 
-            # merge notes
             for cls, note in day_notes.items():
                 final_notes.setdefault(cls, {})
                 if day_name in final_notes[cls] and final_notes[cls][day_name] != note:
@@ -480,13 +568,6 @@ def notify_worker(title: str, body: str, data: dict) -> None:
         print("Worker notify failed:", repr(e))
 
 
-def download_to_tmp(pdf_url: str, tmp_name: str) -> None:
-    resp = requests.get(pdf_url, headers=HEADERS, timeout=60)
-    resp.raise_for_status()
-    with open(tmp_name, "wb") as f:
-        f.write(resp.content)
-
-
 def load_old_state() -> dict:
     if not os.path.exists(OUTPUT_FILE):
         return {}
@@ -498,23 +579,22 @@ def load_old_state() -> dict:
 
 
 def main() -> None:
-    # Discover latest PDFs by content (robust against missing/renamed/swapped links)
-    found = pick_latest_pdfs_by_kind(max_probe=10)  # you can tweak
+    found = pick_latest_pdfs_by_kind(max_probe=10)
     if not found:
         print("No usable timetable PDFs found on site.")
         return
 
     old = load_old_state()
-    old_sources = (old.get("sources") or {})
-    old_schedule: Dict[str, Dict[str, List[str]]] = (old.get("schedule") or {})
-    old_day_notes: Dict[str, Dict[str, str]] = (old.get("day_notes") or {})
+    old_sources = old.get("sources") or {}
+    old_schedule: Dict[str, Dict[str, List[str]]] = old.get("schedule") or {}
+    old_day_notes: Dict[str, Dict[str, str]] = old.get("day_notes") or {}
 
     # Start from old state so if one PDF is missing this week, it doesn't vanish from JSON
     schedule_all: Dict[str, Dict[str, List[str]]] = dict(old_schedule)
     day_notes_all: Dict[str, Dict[str, str]] = dict(old_day_notes)
 
     sources_out: Dict[str, Dict[str, str]] = dict(old_sources)
-    changed_any = (not os.path.exists(OUTPUT_FILE))
+    changed_any = not os.path.exists(OUTPUT_FILE)
 
     for kind, info in found.items():
         pdf_url = info["url"]
@@ -522,18 +602,17 @@ def main() -> None:
         expected_classes = KIND_TO_CLASSES[kind]
 
         pdf_hash = file_hash(tmp)
-        old_hash = ((old_sources.get(kind) or {}).get("pdf_hash"))
+        old_hash = (old_sources.get(kind) or {}).get("pdf_hash")
 
         sources_out[kind] = {"source_pdf": pdf_url, "pdf_hash": pdf_hash}
         if pdf_hash != old_hash:
             changed_any = True
 
-        # remove old entries for this kind (so they get replaced cleanly)
+        # remove old entries for this kind so they get replaced cleanly
         for cls in expected_classes:
             schedule_all.pop(cls, None)
             day_notes_all.pop(cls, None)
 
-        # parse + merge
         try:
             new_schedule, new_notes = parse_pdf(tmp, expected_classes)
         finally:
