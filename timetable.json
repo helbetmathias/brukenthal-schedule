@@ -1,13 +1,13 @@
 {
-  "updated_at": "12.04.2026 17:44",
+  "updated_at": "17.04.2026 04:30",
   "sources": {
     "liceu": {
       "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/04/orar2025-2026-S26-15-17.04-1.pdf",
       "pdf_hash": "ca5a5b067d564233715bf60fd5295cc31236104dee348b319eb0e4740c8e0069"
     },
     "gimnaziu": {
-      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/04/gimnaziu_ORAR-2025-2026_S1m5_var2.pdf",
-      "pdf_hash": "e73d42a82d1d4c0b2b2c560ec4fe9fd6f135ee1071e9c351a18adcc3c148818e"
+      "source_pdf": "https://brukenthal.ro/wp-content/uploads/2026/04/gimnaziu_ORAR-2025-2026_S1m5_var2-1.pdf",
+      "pdf_hash": "de37a009b1c655756fa039750686ad1e166d1e02ce2586b15d1e851aea257966"
     }
   },
   "schedule": {
@@ -583,7 +583,7 @@
         "19:10-19:55 | Edf-CA"
       ],
       "Joi": [
-        "14:00-14:45 | Ger-CM",
+        "14:00-14:45 | Mat-CI",
         "14:50-15:35 | Istm-HM",
         "15:45-16:30 | Ger-CM",
         "16:35-17:20 | Bio-ML",
@@ -768,7 +768,7 @@
         "16:35-17:20 | Edt- IA",
         "17:30-18:15 | Mat- CI",
         "18:20-19:05 | D- CI",
-        "19:10-19:55 | VM Fb-"
+        "19:10-19:55 | Fb- VM"
       ],
       "Vineri": [
         "14:50-15:35 | Bio- ML",
