@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional, Set, Any
 
 RO_TZ = ZoneInfo("Europe/Bucharest")
 URL = "https://brukenthal.ro/"
@@ -45,9 +45,10 @@ DAY_MARKERS = {
     "FREITAG": "Vineri",
 }
 
+EXPECTED_DAYS = set(DAY_MARKERS.values())
+
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*[-–]\s*\d{1,2}:\d{2}$")
 
-# Heuristic keywords that indicate a room/lab note in header (if class token is missing)
 NOTE_HINTS = ("cab", "lab", "sala", "sală", "clasa", "clasă", "cl.", "cls", "aula")
 
 
@@ -56,6 +57,14 @@ def file_hash(path: str) -> str:
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
+    return h.hexdigest()
+
+
+def combined_hash(values: List[str]) -> str:
+    h = hashlib.sha256()
+    for v in sorted(values):
+        h.update(v.encode("utf-8"))
+        h.update(b"\n")
     return h.hexdigest()
 
 
@@ -93,11 +102,9 @@ def is_time_slot(s: str) -> bool:
 def normalize_subject(subj: str) -> str:
     subj = normalize_ws(subj)
 
-    # junk single lowercase
     if re.fullmatch(r"[a-z]", subj):
         return ""
 
-    # remove a single stray lowercase prefix only if it's clearly an OCR artifact (aXxx)
     subj = re.sub(r"^[a-z](?=[A-Z0-9ĂÂÎȘȚ])", "", subj).strip()
 
     if len(subj) < 2:
@@ -113,7 +120,7 @@ def download_to_tmp(pdf_url: str, tmp_name: str) -> None:
 
 
 # ---------------------------
-# PDF discovery + kind detection
+# PDF discovery + selection
 # ---------------------------
 
 def get_all_pdf_urls() -> List[str]:
@@ -140,54 +147,112 @@ def url_score(u: str) -> List[int]:
 
 
 def class_token_regex(cls: str) -> str:
-    # allow "10 A" or "10A"
     digits, letter = cls[:-1], cls[-1]
     return rf"\b{re.escape(digits)}\s*{re.escape(letter)}\b"
 
 
-def detect_pdf_kind_fast(pdf_path: str) -> Optional[str]:
+def detect_pdf_kind_and_days(pdf_path: str) -> Tuple[Optional[str], Set[str]]:
     """
-    Return 'liceu' / 'gimnaziu' / None by scanning first page text for class tokens.
+    Returnează:
+      ("liceu" / "gimnaziu" / None, set(zile_detectate_în_pdf))
     """
     try:
         with pdfplumber.open(pdf_path) as pdf:
             page = pdf.pages[0]
+
             text = normalize_ws(page.extract_text() or "")
+            words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
+            wtext = normalize_ws(" ".join(w.get("text", "") for w in words))
 
-            liceu_hits = sum(1 for c in LICEU_CLASSES if re.search(class_token_regex(c), text, flags=re.IGNORECASE))
-            gim_hits = sum(1 for c in GIMNAZIU_CLASSES if re.search(class_token_regex(c), text, flags=re.IGNORECASE))
+            full_text = f"{text} {wtext}".upper()
 
-            # fallback: sometimes extract_text is poor; try words
-            if max(liceu_hits, gim_hits) < 4:
-                words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
-                wtext = normalize_ws(" ".join(w.get("text", "") for w in words))
-                liceu_hits = max(
-                    liceu_hits,
-                    sum(1 for c in LICEU_CLASSES if re.search(class_token_regex(c), wtext, flags=re.IGNORECASE))
-                )
-                gim_hits = max(
-                    gim_hits,
-                    sum(1 for c in GIMNAZIU_CLASSES if re.search(class_token_regex(c), wtext, flags=re.IGNORECASE))
-                )
+            liceu_hits = sum(
+                1 for c in LICEU_CLASSES
+                if re.search(class_token_regex(c), full_text, flags=re.IGNORECASE)
+            )
+            gim_hits = sum(
+                1 for c in GIMNAZIU_CLASSES
+                if re.search(class_token_regex(c), full_text, flags=re.IGNORECASE)
+            )
 
+            kind = None
             if liceu_hits >= 4 and liceu_hits > gim_hits:
-                return "liceu"
-            if gim_hits >= 4 and gim_hits > liceu_hits:
-                return "gimnaziu"
-            return None
+                kind = "liceu"
+            elif gim_hits >= 4 and gim_hits > liceu_hits:
+                kind = "gimnaziu"
+
+            days = {
+                ro_name
+                for de_name, ro_name in DAY_MARKERS.items()
+                if de_name in full_text
+            }
+
+            return kind, days
+
     except Exception:
-        return None
+        return None, set()
 
 
-def pick_latest_pdfs_by_kind(max_probe: int = 8) -> Dict[str, Dict[str, str]]:
+def choose_pdfs_for_kind(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Downloads up to max_probe newest-ish PDFs and assigns them to liceu/gimnaziu
-    based on content. Returns:
+    Alege PDF-urile cele mai bune pentru un kind:
+    - dacă există un PDF cu 5 zile, ia doar pe acela
+    - altfel combină mai multe PDF-uri parțiale ca să acopere cât mai multe zile
+    """
+    if not items:
+        return []
+
+    full_week = [x for x in items if x["days"] == EXPECTED_DAYS or x["day_count"] == 5]
+    if full_week:
+        full_week.sort(key=lambda x: (x["score"], x["day_count"]), reverse=True)
+        return [full_week[0]]
+
+    selected: List[Dict[str, Any]] = []
+    covered: Set[str] = set()
+    remaining = items[:]
+
+    while remaining:
+        best = max(
+            remaining,
+            key=lambda x: (
+                len(x["days"] - covered),
+                x["day_count"],
+                x["score"],
+            )
+        )
+        new_days = best["days"] - covered
+        if not new_days:
+            break
+        selected.append(best)
+        covered |= best["days"]
+        remaining.remove(best)
+        if covered == EXPECTED_DAYS:
+            break
+
+    if not selected:
+        items_sorted = sorted(items, key=lambda x: (x["day_count"], x["score"]), reverse=True)
+        return [items_sorted[0]]
+
+    selected.sort(key=lambda x: x["score"], reverse=True)
+    return selected
+
+
+def pick_latest_pdfs_by_kind(max_probe: int = 20) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Returnează:
       {
-        "liceu": {"url": ..., "tmp": ...},
-        "gimnaziu": {"url": ..., "tmp": ...}
+        "liceu": [candidate1, candidate2, ...],
+        "gimnaziu": [candidate1, ...]
       }
-    Keeps temp files for the winners (caller will parse & delete).
+
+    Fiecare candidate are:
+      {
+        "url": ...,
+        "tmp": ...,
+        "days": set(...),
+        "day_count": int,
+        "score": [...]
+      }
     """
     pdf_urls = get_all_pdf_urls()
     if not pdf_urls:
@@ -195,12 +260,20 @@ def pick_latest_pdfs_by_kind(max_probe: int = 8) -> Dict[str, Dict[str, str]]:
 
     pdf_urls.sort(key=url_score, reverse=True)
 
-    found: Dict[str, Dict[str, str]] = {}
+    candidates: Dict[str, List[Dict[str, Any]]] = {
+        "liceu": [],
+        "gimnaziu": [],
+    }
+
     for i, u in enumerate(pdf_urls[:max_probe]):
         tmp = f"temp_probe_{i}.pdf"
         try:
             download_to_tmp(u, tmp)
+            kind, days = detect_pdf_kind_and_days(tmp)
         except Exception:
+            kind, days = None, set()
+
+        if kind not in ("liceu", "gimnaziu"):
             try:
                 if os.path.exists(tmp):
                     os.remove(tmp)
@@ -208,27 +281,30 @@ def pick_latest_pdfs_by_kind(max_probe: int = 8) -> Dict[str, Dict[str, str]]:
                 pass
             continue
 
-        kind = detect_pdf_kind_fast(tmp)
+        candidates[kind].append({
+            "url": u,
+            "tmp": tmp,
+            "days": set(days),
+            "day_count": len(days),
+            "score": url_score(u),
+        })
 
-        if kind not in ("liceu", "gimnaziu"):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-            continue
+    chosen: Dict[str, List[Dict[str, Any]]] = {}
 
-        if kind not in found:
-            found[kind] = {"url": u, "tmp": tmp}
-        else:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+    for kind, items in candidates.items():
+        selected = choose_pdfs_for_kind(items)
+        if selected:
+            chosen[kind] = selected
 
-        if "liceu" in found and "gimnaziu" in found:
-            break
+        keep = {item["tmp"] for item in selected}
+        for item in items:
+            if item["tmp"] not in keep:
+                try:
+                    os.remove(item["tmp"])
+                except OSError:
+                    pass
 
-    return found
+    return chosen
 
 
 # ---------------------------
@@ -236,14 +312,31 @@ def pick_latest_pdfs_by_kind(max_probe: int = 8) -> Dict[str, Dict[str, str]]:
 # ---------------------------
 
 def find_day_zones(page) -> List[Dict[str, float]]:
-    words = page.extract_words(x_tolerance=2, y_tolerance=2)
+    words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
     zones = []
+
     for w in words:
-        t = (w.get("text") or "").upper()
-        if t in DAY_MARKERS:
-            zones.append({"day": DAY_MARKERS[t], "top": w["top"], "bottom": w["bottom"]})
+        raw = normalize_ws(w.get("text") or "")
+        compact = normalize_compact(raw)
+
+        for de_name, ro_name in DAY_MARKERS.items():
+            if de_name in compact:
+                zones.append({
+                    "day": ro_name,
+                    "top": w["top"],
+                    "bottom": w["bottom"],
+                })
+                break
+
     zones.sort(key=lambda z: z["top"])
-    return zones
+
+    dedup: List[Dict[str, float]] = []
+    for z in zones:
+        if dedup and dedup[-1]["day"] == z["day"] and abs(dedup[-1]["top"] - z["top"]) < 4:
+            continue
+        dedup.append(z)
+
+    return dedup
 
 
 def get_y_bounds_for_crop(page_crop) -> List[float]:
@@ -259,10 +352,6 @@ def get_y_bounds_for_crop(page_crop) -> List[float]:
 
 
 def merge_small_gaps(bounds: List[float], min_gap: float = 8.0) -> List[float]:
-    """
-    Collapse fake extra boundaries created by thick/double vertical rules.
-    Real columns are wide; fake spacer columns are tiny.
-    """
     if not bounds:
         return bounds
 
@@ -276,17 +365,6 @@ def merge_small_gaps(bounds: List[float], min_gap: float = 8.0) -> List[float]:
 
 
 def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
-    """
-    Detect x boundaries for one day block only.
-    Expected boundaries:
-      left border
-      time/class separators
-      ...
-      right border
-
-    Count must be:
-      time column + N class columns => N+1 columns => N+2 boundaries
-    """
     target_boundaries = len(expected_classes) + 2
 
     verts = [e for e in day_crop.edges if e.get("orientation") == "v"]
@@ -295,13 +373,9 @@ def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
     if not xs:
         raise RuntimeError("No vertical edges found in day crop.")
 
-    # First cluster nearby raw positions
     x_bounds = cluster_positions(xs, tol=2.5)
-
-    # Then collapse fake tiny columns caused by thick/double borders
     x_bounds = merge_small_gaps(x_bounds, min_gap=8.0)
 
-    # If too many boundaries remain, merge the smallest gaps until the count matches
     while len(x_bounds) > target_boundaries:
         gaps = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
         i = min(range(len(gaps)), key=gaps.__getitem__)
@@ -397,11 +471,8 @@ def detect_header_row(grid: List[List[str]], expected_classes: List[str]) -> Opt
     best_r = None
     best_score = -1
 
-    # header should be near top
     for r in range(min(12, len(grid))):
         found = set()
-
-        # ignore column 0 (time/day label column)
         for cell in grid[r][1:]:
             for cls in expected_classes:
                 if header_cell_matches_class(cell, cls):
@@ -415,7 +486,6 @@ def detect_header_row(grid: List[List[str]], expected_classes: List[str]) -> Opt
     if best_r is None:
         return None
 
-    # need at least half of the classes to be confident
     if best_score < max(6, len(expected_classes) // 2):
         return None
 
@@ -429,14 +499,12 @@ def extract_header_note(header_cell: str, cls: str) -> str:
 
     pattern = class_token_regex(cls)
 
-    # if it contains the class token, strip it out
     if re.search(pattern, txt, flags=re.IGNORECASE):
         note = re.sub(pattern, "", txt, count=1, flags=re.IGNORECASE).strip()
         note = normalize_ws(note)
         note = note.strip(" -–|,.;:").strip()
         return note
 
-    # fallback heuristic
     low = txt.lower()
     if any(h in low for h in NOTE_HINTS) and normalize_compact(txt) != cls.upper():
         return txt.strip(" -–|,.;:").strip()
@@ -472,11 +540,9 @@ def parse_day_block(
     if header_r is None:
         return {}, {}
 
-    # fixed column mapping by index: col 0 is times, cols 1..N are classes
     max_class_cols = min(len(expected_classes), n_cols - 1)
     col_to_class = {c: expected_classes[c - 1] for c in range(1, 1 + max_class_cols)}
 
-    # Extract notes from header row
     day_notes: Dict[str, str] = {}
     header_row = grid[header_r]
     for c, cls in col_to_class.items():
@@ -485,6 +551,8 @@ def parse_day_block(
             day_notes[cls] = note
 
     day_schedule: Dict[str, List[str]] = {cls: [] for cls in expected_classes}
+
+    expected_class_set = {x.upper() for x in expected_classes}
 
     for r in range(header_r + 1, n_rows):
         time_txt = normalize_ws(grid[r][0])
@@ -498,8 +566,7 @@ def parse_day_block(
             if not subj:
                 continue
 
-            # prevent weird accidental echoes of class labels
-            if subj.upper() in {x.upper() for x in expected_classes}:
+            if subj.upper() in expected_class_set:
                 continue
 
             entry = f"{time_out} | {subj}"
@@ -521,16 +588,22 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
         if not zones:
             raise RuntimeError("Could not find day headers (MONTAG/DIENSTAG/...).")
 
+        seen_days: Set[str] = set()
+        unique_zones: List[Dict[str, float]] = []
+        for z in zones:
+            if z["day"] not in seen_days:
+                unique_zones.append(z)
+                seen_days.add(z["day"])
+
+        zones = unique_zones
+
         for i, z in enumerate(zones):
             day_name = z["day"]
             y_start = max(0, z["top"] - 8)
             y_end = zones[i + 1]["top"] - 6 if i + 1 < len(zones) else page.height
 
             crop = page.crop((0, y_start, page.width, y_end))
-
-            # IMPORTANT: detect x-bounds per day block, not once globally for whole page
             x_bounds = get_x_bounds_for_day(crop, expected_classes)
-
             day_block, day_notes = parse_day_block(crop, x_bounds, expected_classes)
 
             for cls, entries in day_block.items():
@@ -550,6 +623,44 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
 
     final_notes = {cls: dn for cls, dn in final_notes.items() if dn}
     return final_schedule, final_notes
+
+
+# ---------------------------
+# Merge helpers
+# ---------------------------
+
+def schedule_days_present(schedule: Dict[str, Dict[str, List[str]]]) -> Set[str]:
+    out: Set[str] = set()
+    for cls_days in schedule.values():
+        out.update(cls_days.keys())
+    return out
+
+
+def merge_schedule_parts(
+    target: Dict[str, Dict[str, List[str]]],
+    source: Dict[str, Dict[str, List[str]]]
+) -> None:
+    for cls, days in source.items():
+        target.setdefault(cls, {})
+        for day, entries in days.items():
+            target[cls].setdefault(day, [])
+            for e in entries:
+                if e not in target[cls][day]:
+                    target[cls][day].append(e)
+
+
+def merge_notes_parts(
+    target: Dict[str, Dict[str, str]],
+    source: Dict[str, Dict[str, str]]
+) -> None:
+    for cls, days in source.items():
+        target.setdefault(cls, {})
+        for day, note in days.items():
+            if day in target[cls] and target[cls][day] != note:
+                if note not in target[cls][day]:
+                    target[cls][day] = f"{target[cls][day]}; {note}"
+            else:
+                target[cls][day] = note
 
 
 def notify_worker(title: str, body: str, data: dict) -> None:
@@ -579,7 +690,7 @@ def load_old_state() -> dict:
 
 
 def main() -> None:
-    found = pick_latest_pdfs_by_kind(max_probe=10)
+    found = pick_latest_pdfs_by_kind(max_probe=20)
     if not found:
         print("No usable timetable PDFs found on site.")
         return
@@ -589,54 +700,75 @@ def main() -> None:
     old_schedule: Dict[str, Dict[str, List[str]]] = old.get("schedule") or {}
     old_day_notes: Dict[str, Dict[str, str]] = old.get("day_notes") or {}
 
-    # Start from old state so if one PDF is missing this week, it doesn't vanish from JSON
     schedule_all: Dict[str, Dict[str, List[str]]] = dict(old_schedule)
     day_notes_all: Dict[str, Dict[str, str]] = dict(old_day_notes)
 
-    sources_out: Dict[str, Dict[str, str]] = dict(old_sources)
+    sources_out: Dict[str, Dict[str, Any]] = dict(old_sources)
     changed_any = not os.path.exists(OUTPUT_FILE)
 
-    for kind, info in found.items():
-        pdf_url = info["url"]
-        tmp = info["tmp"]
+    for kind, selected_items in found.items():
         expected_classes = KIND_TO_CLASSES[kind]
 
-        pdf_hash = file_hash(tmp)
+        kind_schedule: Dict[str, Dict[str, List[str]]] = {}
+        kind_notes: Dict[str, Dict[str, str]] = {}
+
+        selected_urls = [item["url"] for item in selected_items]
+        selected_day_union: Set[str] = set()
+        pdf_hashes: List[str] = []
+
+        for item in selected_items:
+            selected_day_union |= set(item["days"])
+            pdf_hashes.append(file_hash(item["tmp"]))
+
+            try:
+                part_schedule, part_notes = parse_pdf(item["tmp"], expected_classes)
+                merge_schedule_parts(kind_schedule, part_schedule)
+                merge_notes_parts(kind_notes, part_notes)
+            finally:
+                try:
+                    os.remove(item["tmp"])
+                except OSError:
+                    pass
+
+        parsed_days = schedule_days_present(kind_schedule)
+        parsed_class_count = len(kind_schedule)
+
+        if not parsed_days:
+            print(f"[WARN] {kind}: selected PDFs produced no parsed schedule. Keeping old state.")
+            continue
+
+        kind_hash = combined_hash(pdf_hashes)
         old_hash = (old_sources.get(kind) or {}).get("pdf_hash")
 
-        sources_out[kind] = {"source_pdf": pdf_url, "pdf_hash": pdf_hash}
-        if pdf_hash != old_hash:
+        sources_out[kind] = {
+            "source_pdfs": selected_urls,
+            "pdf_hash": kind_hash,
+            "pdf_hashes": pdf_hashes,
+            "coverage_days": sorted(selected_day_union),
+            "parsed_days": sorted(parsed_days),
+        }
+
+        if kind_hash != old_hash:
             changed_any = True
 
-        # remove old entries for this kind so they get replaced cleanly
-        for cls in expected_classes:
-            schedule_all.pop(cls, None)
-            day_notes_all.pop(cls, None)
+        full_week = parsed_days == EXPECTED_DAYS
 
-        try:
-            new_schedule, new_notes = parse_pdf(tmp, expected_classes)
-        finally:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+        print(f"[{kind}] source PDFs: {len(selected_items)}")
+        print(f"[{kind}] selected day coverage: {sorted(selected_day_union)}")
+        print(f"[{kind}] parsed days: {sorted(parsed_days)}")
+        print(f"[{kind}] parsed classes: {parsed_class_count}")
 
-        for cls, days in new_schedule.items():
-            schedule_all.setdefault(cls, {})
-            for day, entries in days.items():
-                schedule_all[cls].setdefault(day, [])
-                for e in entries:
-                    if e not in schedule_all[cls][day]:
-                        schedule_all[cls][day].append(e)
+        if full_week:
+            for cls in expected_classes:
+                schedule_all.pop(cls, None)
+                day_notes_all.pop(cls, None)
 
-        for cls, dn in new_notes.items():
-            day_notes_all.setdefault(cls, {})
-            for day, note in dn.items():
-                if day in day_notes_all[cls] and day_notes_all[cls][day] != note:
-                    if note not in day_notes_all[cls][day]:
-                        day_notes_all[cls][day] = f"{day_notes_all[cls][day]}; {note}"
-                else:
-                    day_notes_all[cls][day] = note
+            merge_schedule_parts(schedule_all, kind_schedule)
+            merge_notes_parts(day_notes_all, kind_notes)
+        else:
+            print(f"[WARN] Partial timetable for {kind}: {sorted(parsed_days)} | keeping missing days from old state")
+            merge_schedule_parts(schedule_all, kind_schedule)
+            merge_notes_parts(day_notes_all, kind_notes)
 
     if not changed_any and os.path.exists(OUTPUT_FILE):
         print("No detected changes, skipping update.")
