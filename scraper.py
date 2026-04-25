@@ -70,11 +70,13 @@ def combined_hash(values: List[str]) -> str:
 def cluster_positions(values: List[float], tol: float = 1.5) -> List[float]:
     values = sorted(values)
     clusters: List[List[float]] = []
+
     for v in values:
         if not clusters or abs(v - clusters[-1][-1]) > tol:
             clusters.append([v])
         else:
             clusters[-1].append(v)
+
     return [sum(c) / len(c) for c in clusters]
 
 
@@ -115,6 +117,7 @@ def normalize_subject(subj: str) -> str:
 def download_to_tmp(pdf_url: str, tmp_name: str) -> None:
     resp = requests.get(pdf_url, headers=HEADERS, timeout=60)
     resp.raise_for_status()
+
     with open(tmp_name, "wb") as f:
         f.write(resp.content)
 
@@ -150,13 +153,6 @@ def class_token_regex(cls: str) -> str:
 
 
 def extract_week_key(url: str) -> str:
-    """
-    Extrage cheia săptămânii din numele PDF-ului.
-    Exemple:
-      orar2025-2026def-S28-27-30.04.pdf -> S28
-      gimnaziu_ORAR-2025-2026_S3m5.pdf -> S3M5
-      gimnaziu_ORAR-2025-2026_S1m5_var2-1.pdf -> S1M5
-    """
     base = os.path.splitext(os.path.basename(url))[0].upper()
     parts = re.split(r"[_-]+", base)
 
@@ -188,6 +184,7 @@ def detect_pdf_kind_and_days(pdf_path: str) -> Tuple[Optional[str], Set[str]]:
             )
 
             kind = None
+
             if liceu_hits >= 4 and liceu_hits > gim_hits:
                 kind = "liceu"
             elif gim_hits >= 4 and gim_hits > liceu_hits:
@@ -244,6 +241,7 @@ def choose_pdfs_for_kind(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         )
 
         new_days = best["days"] - covered
+
         if not new_days:
             break
 
@@ -345,6 +343,7 @@ def find_day_zones(page) -> List[Dict[str, float]]:
     zones.sort(key=lambda z: z["top"])
 
     dedup: List[Dict[str, float]] = []
+
     for z in zones:
         if dedup and dedup[-1]["day"] == z["day"] and abs(dedup[-1]["top"] - z["top"]) < 4:
             continue
@@ -359,6 +358,7 @@ def get_y_bounds_for_crop(page_crop) -> List[float]:
     y_bounds = sorted(cluster_positions(ys, tol=1.5))
 
     cleaned: List[float] = []
+
     for y in y_bounds:
         if not cleaned or abs(y - cleaned[-1]) > 1.0:
             cleaned.append(y)
@@ -381,7 +381,7 @@ def merge_small_gaps(bounds: List[float], min_gap: float = 8.0) -> List[float]:
     return out
 
 
-def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
+def get_x_bounds_from_edges_fallback(day_crop, expected_classes: List[str]) -> List[float]:
     target_boundaries = len(expected_classes) + 2
 
     verts = [e for e in day_crop.edges if e.get("orientation") == "v"]
@@ -405,11 +405,90 @@ def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
             f"Bounds={list(map(lambda x: round(x, 2), x_bounds))}"
         )
 
-    widths = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
-    tiny = [round(w, 2) for w in widths if w < 12]
+    return x_bounds
 
-    if tiny:
-        raise RuntimeError(f"Still have suspicious tiny columns after merge: {tiny}")
+
+def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
+    """
+    Calculează coloanele după textul din antet: 9A...12D / 5A...8D.
+    Asta repară bugul unde liniile PDF tăiau textul la clasele din dreapta.
+    """
+    words = day_crop.extract_words(x_tolerance=2, y_tolerance=2) or []
+
+    class_hits: List[Tuple[str, dict]] = []
+    expected_set = {cls.upper() for cls in expected_classes}
+
+    for w in words:
+        txt = normalize_compact(w.get("text") or "")
+
+        if txt in expected_set:
+            class_hits.append((txt, w))
+
+    row_groups: List[List[Tuple[str, dict]]] = []
+
+    for cls, w in class_hits:
+        placed = False
+
+        for group in row_groups:
+            if abs(group[0][1]["top"] - w["top"]) < 5:
+                group.append((cls, w))
+                placed = True
+                break
+
+        if not placed:
+            row_groups.append([(cls, w)])
+
+    if not row_groups:
+        return get_x_bounds_from_edges_fallback(day_crop, expected_classes)
+
+    best_group = max(row_groups, key=lambda g: len({cls for cls, _ in g}))
+    best_by_class = {cls: w for cls, w in best_group}
+
+    missing = [cls for cls in expected_classes if cls.upper() not in best_by_class]
+
+    if len(missing) > 2:
+        return get_x_bounds_from_edges_fallback(day_crop, expected_classes)
+
+    centers: List[float] = []
+
+    for cls in expected_classes:
+        w = best_by_class.get(cls.upper())
+
+        if not w:
+            return get_x_bounds_from_edges_fallback(day_crop, expected_classes)
+
+        centers.append((w["x0"] + w["x1"]) / 2.0)
+
+    mids = [
+        (centers[i] + centers[i + 1]) / 2.0
+        for i in range(len(centers) - 1)
+    ]
+
+    first_gap = centers[1] - centers[0]
+    last_gap = centers[-1] - centers[-2]
+
+    first_class_left = centers[0] - first_gap / 2.0
+    last_class_right = centers[-1] + last_gap / 2.0
+
+    left_candidates = [
+        e["x0"]
+        for e in day_crop.edges
+        if e.get("orientation") == "v" and e["x0"] < first_class_left - 10
+    ]
+
+    table_left = min(left_candidates) if left_candidates else first_class_left - 65
+
+    x_bounds = [table_left, first_class_left] + mids + [last_class_right]
+
+    expected_count = len(expected_classes) + 2
+
+    if len(x_bounds) != expected_count:
+        return get_x_bounds_from_edges_fallback(day_crop, expected_classes)
+
+    widths = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
+
+    if any(w < 8 for w in widths):
+        return get_x_bounds_from_edges_fallback(day_crop, expected_classes)
 
     return x_bounds
 
@@ -419,8 +498,8 @@ def cell_text_from_chars(
     x0, x1, y0, y1,
     y_tol=1.2,
     x_gap=1.0,
-    x_pad_left=1.4,
-    x_pad_right=0.35,
+    x_pad_left=0.2,
+    x_pad_right=0.2,
     y_pad=0.2
 ) -> str:
     sx0 = x0 + x_pad_left
@@ -555,7 +634,7 @@ def parse_day_block(
 
     widths = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
 
-    if any(w < 12 for w in widths):
+    if any(w < 8 for w in widths):
         raise RuntimeError(f"Suspicious x bounds, tiny column widths found: {widths}")
 
     chars = day_crop.chars
@@ -835,10 +914,9 @@ def main() -> None:
         print(f"[{kind}] parsed days: {sorted(parsed_days, key=lambda d: DAY_ORDER.index(d))}")
         print(f"[{kind}] parsed classes: {parsed_class_count}")
 
-        # IMPORTANT:
-        # Înlocuim complet orarul vechi pentru liceu/gimnaziu.
+        # Înlocuiește complet orarul vechi pentru liceu/gimnaziu.
         # Zilele lipsă din PDF-ul curent devin [].
-        # Nu mai moștenim Vineri sau altă zi din săptămâna trecută.
+        # Nu mai moștenește Vineri sau altă zi din săptămâna veche.
         for cls in expected_classes:
             schedule_all[cls] = {
                 day: list(kind_schedule.get(cls, {}).get(day, []))
