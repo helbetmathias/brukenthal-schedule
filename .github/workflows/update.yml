@@ -44,6 +44,12 @@ jobs:
         run: python scraper.py
         env:
           WORKER_AUTH_KEY: ${{ secrets.WORKER_AUTH_KEY }}
+          FORCE_UPDATE: ${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Show timetable diff
+        run: |
+          git status --short
+          git diff -- timetable.json || true
 
       - name: Commit updated timetable.json
         uses: stefanzweifel/git-auto-commit-action@v5
