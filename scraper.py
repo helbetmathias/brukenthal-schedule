@@ -14,7 +14,6 @@ URL = "https://brukenthal.ro/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 OUTPUT_FILE = "timetable.json"
 
-# Cloudflare Worker notify endpoint (optional)
 WORKER_NOTIFY_URL = "https://shrill-tooth-d37a.ronzigamespro2007.workers.dev/notify"
 WORKER_AUTH_KEY = os.getenv("WORKER_AUTH_KEY", "")
 
@@ -45,10 +44,10 @@ DAY_MARKERS = {
     "FREITAG": "Vineri",
 }
 
-EXPECTED_DAYS = set(DAY_MARKERS.values())
+DAY_ORDER = ["Luni", "Marti", "Miercuri", "Joi", "Vineri"]
+EXPECTED_DAYS = set(DAY_ORDER)
 
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*[-–]\s*\d{1,2}:\d{2}$")
-
 NOTE_HINTS = ("cab", "lab", "sala", "sală", "clasa", "clasă", "cl.", "cls", "aula")
 
 
@@ -109,6 +108,7 @@ def normalize_subject(subj: str) -> str:
 
     if len(subj) < 2:
         return ""
+
     return subj
 
 
@@ -118,10 +118,6 @@ def download_to_tmp(pdf_url: str, tmp_name: str) -> None:
     with open(tmp_name, "wb") as f:
         f.write(resp.content)
 
-
-# ---------------------------
-# PDF discovery + selection
-# ---------------------------
 
 def get_all_pdf_urls() -> List[str]:
     resp = requests.get(URL, headers=HEADERS, timeout=30)
@@ -133,11 +129,13 @@ def get_all_pdf_urls() -> List[str]:
 
     seen: Set[str] = set()
     out: List[str] = []
+
     for u in urls:
         u = u.split("#", 1)[0]
         if u not in seen:
             seen.add(u)
             out.append(u)
+
     return out
 
 
@@ -151,11 +149,26 @@ def class_token_regex(cls: str) -> str:
     return rf"\b{re.escape(digits)}\s*{re.escape(letter)}\b"
 
 
+def extract_week_key(url: str) -> str:
+    """
+    Extrage cheia săptămânii din numele PDF-ului.
+    Exemple:
+      orar2025-2026def-S28-27-30.04.pdf -> S28
+      gimnaziu_ORAR-2025-2026_S3m5.pdf -> S3M5
+      gimnaziu_ORAR-2025-2026_S1m5_var2-1.pdf -> S1M5
+    """
+    base = os.path.splitext(os.path.basename(url))[0].upper()
+    parts = re.split(r"[_-]+", base)
+
+    for p in parts:
+        if re.fullmatch(r"S\d+[A-Z0-9]*", p):
+            return p
+
+    m = re.search(r"(S\d+[A-Z0-9]*)", base)
+    return m.group(1) if m else base
+
+
 def detect_pdf_kind_and_days(pdf_path: str) -> Tuple[Optional[str], Set[str]]:
-    """
-    Returnează:
-      ("liceu" / "gimnaziu" / None, set(zile_detectate_în_pdf))
-    """
     try:
         with pdfplumber.open(pdf_path) as pdf:
             page = pdf.pages[0]
@@ -163,7 +176,6 @@ def detect_pdf_kind_and_days(pdf_path: str) -> Tuple[Optional[str], Set[str]]:
             text = normalize_ws(page.extract_text() or "")
             words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
             wtext = normalize_ws(" ".join(w.get("text", "") for w in words))
-
             full_text = f"{text} {wtext}".upper()
 
             liceu_hits = sum(
@@ -193,16 +205,26 @@ def detect_pdf_kind_and_days(pdf_path: str) -> Tuple[Optional[str], Set[str]]:
         return None, set()
 
 
+def choose_current_week_group(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+
+    for item in items:
+        groups.setdefault(item["week_key"], []).append(item)
+
+    best_group = max(
+        groups.values(),
+        key=lambda group: max(tuple(x["score"]) for x in group)
+    )
+
+    return best_group
+
+
 def choose_pdfs_for_kind(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Alege PDF-urile cele mai bune pentru un kind:
-    - dacă există un PDF cu 5 zile, ia doar pe acela
-    - altfel combină mai multe PDF-uri parțiale ca să acopere cât mai multe zile
-    """
     if not items:
         return []
 
     full_week = [x for x in items if x["days"] == EXPECTED_DAYS or x["day_count"] == 5]
+
     if full_week:
         full_week.sort(key=lambda x: (x["score"], x["day_count"]), reverse=True)
         return [full_week[0]]
@@ -220,12 +242,15 @@ def choose_pdfs_for_kind(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 x["score"],
             )
         )
+
         new_days = best["days"] - covered
         if not new_days:
             break
+
         selected.append(best)
         covered |= best["days"]
         remaining.remove(best)
+
         if covered == EXPECTED_DAYS:
             break
 
@@ -237,24 +262,9 @@ def choose_pdfs_for_kind(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return selected
 
 
-def pick_latest_pdfs_by_kind(max_probe: int = 20) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    Returnează:
-      {
-        "liceu": [candidate1, candidate2, ...],
-        "gimnaziu": [candidate1, ...]
-      }
-
-    Fiecare candidate are:
-      {
-        "url": ...,
-        "tmp": ...,
-        "days": set(...),
-        "day_count": int,
-        "score": [...]
-      }
-    """
+def pick_latest_pdfs_by_kind(max_probe: int = 30) -> Dict[str, List[Dict[str, Any]]]:
     pdf_urls = get_all_pdf_urls()
+
     if not pdf_urls:
         return {}
 
@@ -267,6 +277,7 @@ def pick_latest_pdfs_by_kind(max_probe: int = 20) -> Dict[str, List[Dict[str, An
 
     for i, u in enumerate(pdf_urls[:max_probe]):
         tmp = f"temp_probe_{i}.pdf"
+
         try:
             download_to_tmp(u, tmp)
             kind, days = detect_pdf_kind_and_days(tmp)
@@ -287,16 +298,23 @@ def pick_latest_pdfs_by_kind(max_probe: int = 20) -> Dict[str, List[Dict[str, An
             "days": set(days),
             "day_count": len(days),
             "score": url_score(u),
+            "week_key": extract_week_key(u),
         })
 
     chosen: Dict[str, List[Dict[str, Any]]] = {}
 
     for kind, items in candidates.items():
-        selected = choose_pdfs_for_kind(items)
+        if not items:
+            continue
+
+        current_week_items = choose_current_week_group(items)
+        selected = choose_pdfs_for_kind(current_week_items)
+
         if selected:
             chosen[kind] = selected
 
         keep = {item["tmp"] for item in selected}
+
         for item in items:
             if item["tmp"] not in keep:
                 try:
@@ -306,10 +324,6 @@ def pick_latest_pdfs_by_kind(max_probe: int = 20) -> Dict[str, List[Dict[str, An
 
     return chosen
 
-
-# ---------------------------
-# Table parsing
-# ---------------------------
 
 def find_day_zones(page) -> List[Dict[str, float]]:
     words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
@@ -348,6 +362,7 @@ def get_y_bounds_for_crop(page_crop) -> List[float]:
     for y in y_bounds:
         if not cleaned or abs(y - cleaned[-1]) > 1.0:
             cleaned.append(y)
+
     return cleaned
 
 
@@ -356,11 +371,13 @@ def merge_small_gaps(bounds: List[float], min_gap: float = 8.0) -> List[float]:
         return bounds
 
     out = [bounds[0]]
+
     for x in bounds[1:]:
         if x - out[-1] < min_gap:
             out[-1] = (out[-1] + x) / 2.0
         else:
             out.append(x)
+
     return out
 
 
@@ -390,6 +407,7 @@ def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
 
     widths = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
     tiny = [round(w, 2) for w in widths if w < 12]
+
     if tiny:
         raise RuntimeError(f"Still have suspicious tiny columns after merge: {tiny}")
 
@@ -412,13 +430,16 @@ def cell_text_from_chars(
 
     if sx1 <= sx0:
         sx0, sx1 = x0, x1
+
     if sy1 <= sy0:
         sy0, sy1 = y0, y1
 
     sel = []
+
     for ch in chars:
         cx = (ch["x0"] + ch["x1"]) / 2
         cy = (ch["top"] + ch["bottom"]) / 2
+
         if (sx0 < cx < sx1) and (sy0 < cy < sy1):
             sel.append(ch)
 
@@ -430,6 +451,7 @@ def cell_text_from_chars(
     lines = []
     cur = []
     cur_top = None
+
     for ch in sel:
         if cur_top is None or abs(ch["top"] - cur_top) <= y_tol:
             cur.append(ch)
@@ -438,19 +460,23 @@ def cell_text_from_chars(
             lines.append(cur)
             cur = [ch]
             cur_top = ch["top"]
+
     if cur:
         lines.append(cur)
 
     out_lines = []
+
     for line in lines:
         line.sort(key=lambda c: c["x0"])
         s = ""
         prev = None
+
         for ch in line:
             if prev is not None and (ch["x0"] - prev["x1"]) > x_gap:
                 s += " "
             s += ch["text"]
             prev = ch
+
         out_lines.append(s.strip())
 
     return normalize_ws(" ".join([l for l in out_lines if l]))
@@ -458,6 +484,7 @@ def cell_text_from_chars(
 
 def header_cell_matches_class(cell_text: str, cls: str) -> bool:
     txt = normalize_ws(cell_text)
+
     if not txt:
         return False
 
@@ -473,12 +500,14 @@ def detect_header_row(grid: List[List[str]], expected_classes: List[str]) -> Opt
 
     for r in range(min(12, len(grid))):
         found = set()
+
         for cell in grid[r][1:]:
             for cls in expected_classes:
                 if header_cell_matches_class(cell, cls):
                     found.add(cls)
 
         score = len(found)
+
         if score > best_score:
             best_score = score
             best_r = r
@@ -494,6 +523,7 @@ def detect_header_row(grid: List[List[str]], expected_classes: List[str]) -> Opt
 
 def extract_header_note(header_cell: str, cls: str) -> str:
     txt = normalize_ws(header_cell)
+
     if not txt:
         return ""
 
@@ -506,6 +536,7 @@ def extract_header_note(header_cell: str, cls: str) -> str:
         return note
 
     low = txt.lower()
+
     if any(h in low for h in NOTE_HINTS) and normalize_compact(txt) != cls.upper():
         return txt.strip(" -–|,.;:").strip()
 
@@ -518,10 +549,12 @@ def parse_day_block(
     expected_classes: List[str]
 ) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     y_bounds = get_y_bounds_for_crop(day_crop)
+
     if len(y_bounds) < 5:
         return {}, {}
 
     widths = [x_bounds[i + 1] - x_bounds[i] for i in range(len(x_bounds) - 1)]
+
     if any(w < 12 for w in widths):
         raise RuntimeError(f"Suspicious x bounds, tiny column widths found: {widths}")
 
@@ -530,13 +563,16 @@ def parse_day_block(
     n_cols = len(x_bounds) - 1
 
     grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
+
     for r in range(n_rows):
         ry0, ry1 = y_bounds[r], y_bounds[r + 1]
+
         for c in range(n_cols):
             cx0, cx1 = x_bounds[c], x_bounds[c + 1]
             grid[r][c] = cell_text_from_chars(chars, cx0, cx1, ry0, ry1)
 
     header_r = detect_header_row(grid, expected_classes)
+
     if header_r is None:
         return {}, {}
 
@@ -545,17 +581,19 @@ def parse_day_block(
 
     day_notes: Dict[str, str] = {}
     header_row = grid[header_r]
+
     for c, cls in col_to_class.items():
         note = extract_header_note(header_row[c] if c < len(header_row) else "", cls)
+
         if note:
             day_notes[cls] = note
 
     day_schedule: Dict[str, List[str]] = {cls: [] for cls in expected_classes}
-
     expected_class_set = {x.upper() for x in expected_classes}
 
     for r in range(header_r + 1, n_rows):
         time_txt = normalize_ws(grid[r][0])
+
         if not is_time_slot(time_txt):
             continue
 
@@ -563,6 +601,7 @@ def parse_day_block(
 
         for c, cls in col_to_class.items():
             subj = normalize_subject(grid[r][c])
+
             if not subj:
                 continue
 
@@ -570,14 +609,19 @@ def parse_day_block(
                 continue
 
             entry = f"{time_out} | {subj}"
+
             if entry not in day_schedule[cls]:
                 day_schedule[cls].append(entry)
 
     day_schedule = {k: v for k, v in day_schedule.items() if v}
+
     return day_schedule, day_notes
 
 
-def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dict[str, List[str]]], Dict[str, Dict[str, str]]]:
+def parse_pdf(
+    pdf_path: str,
+    expected_classes: List[str]
+) -> Tuple[Dict[str, Dict[str, List[str]]], Dict[str, Dict[str, str]]]:
     final_schedule: Dict[str, Dict[str, List[str]]] = {}
     final_notes: Dict[str, Dict[str, str]] = {}
 
@@ -585,11 +629,13 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
         page = pdf.pages[0]
 
         zones = find_day_zones(page)
+
         if not zones:
-            raise RuntimeError("Could not find day headers (MONTAG/DIENSTAG/...).")
+            raise RuntimeError("Could not find day headers.")
 
         seen_days: Set[str] = set()
         unique_zones: List[Dict[str, float]] = []
+
         for z in zones:
             if z["day"] not in seen_days:
                 unique_zones.append(z)
@@ -609,12 +655,14 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
             for cls, entries in day_block.items():
                 final_schedule.setdefault(cls, {})
                 final_schedule[cls].setdefault(day_name, [])
+
                 for e in entries:
                     if e not in final_schedule[cls][day_name]:
                         final_schedule[cls][day_name].append(e)
 
             for cls, note in day_notes.items():
                 final_notes.setdefault(cls, {})
+
                 if day_name in final_notes[cls] and final_notes[cls][day_name] != note:
                     if note not in final_notes[cls][day_name]:
                         final_notes[cls][day_name] = f"{final_notes[cls][day_name]}; {note}"
@@ -622,17 +670,25 @@ def parse_pdf(pdf_path: str, expected_classes: List[str]) -> Tuple[Dict[str, Dic
                     final_notes[cls][day_name] = note
 
     final_notes = {cls: dn for cls, dn in final_notes.items() if dn}
+
     return final_schedule, final_notes
 
 
-# ---------------------------
-# Merge helpers
-# ---------------------------
+def build_empty_kind_schedule(expected_classes: List[str]) -> Dict[str, Dict[str, List[str]]]:
+    return {
+        cls: {day: [] for day in DAY_ORDER}
+        for cls in expected_classes
+    }
+
 
 def schedule_days_present(schedule: Dict[str, Dict[str, List[str]]]) -> Set[str]:
     out: Set[str] = set()
+
     for cls_days in schedule.values():
-        out.update(cls_days.keys())
+        for day, entries in cls_days.items():
+            if entries:
+                out.add(day)
+
     return out
 
 
@@ -642,8 +698,10 @@ def merge_schedule_parts(
 ) -> None:
     for cls, days in source.items():
         target.setdefault(cls, {})
+
         for day, entries in days.items():
             target[cls].setdefault(day, [])
+
             for e in entries:
                 if e not in target[cls][day]:
                     target[cls][day].append(e)
@@ -655,6 +713,7 @@ def merge_notes_parts(
 ) -> None:
     for cls, days in source.items():
         target.setdefault(cls, {})
+
         for day, note in days.items():
             if day in target[cls] and target[cls][day] != note:
                 if note not in target[cls][day]:
@@ -671,7 +730,11 @@ def notify_worker(title: str, body: str, data: dict) -> None:
     try:
         resp = requests.post(
             f"{WORKER_NOTIFY_URL}?key={WORKER_AUTH_KEY}",
-            json={"title": title, "body": body, "data": data},
+            json={
+                "title": title,
+                "body": body,
+                "data": data,
+            },
             timeout=30,
         )
         print("Worker notify:", resp.status_code, resp.text[:200])
@@ -682,6 +745,7 @@ def notify_worker(title: str, body: str, data: dict) -> None:
 def load_old_state() -> dict:
     if not os.path.exists(OUTPUT_FILE):
         return {}
+
     try:
         with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -690,7 +754,8 @@ def load_old_state() -> dict:
 
 
 def main() -> None:
-    found = pick_latest_pdfs_by_kind(max_probe=20)
+    found = pick_latest_pdfs_by_kind(max_probe=30)
+
     if not found:
         print("No usable timetable PDFs found on site.")
         return
@@ -700,8 +765,15 @@ def main() -> None:
     old_schedule: Dict[str, Dict[str, List[str]]] = old.get("schedule") or {}
     old_day_notes: Dict[str, Dict[str, str]] = old.get("day_notes") or {}
 
-    schedule_all: Dict[str, Dict[str, List[str]]] = dict(old_schedule)
-    day_notes_all: Dict[str, Dict[str, str]] = dict(old_day_notes)
+    schedule_all: Dict[str, Dict[str, List[str]]] = {
+        cls: {day: list(entries) for day, entries in days.items()}
+        for cls, days in old_schedule.items()
+    }
+
+    day_notes_all: Dict[str, Dict[str, str]] = {
+        cls: dict(days)
+        for cls, days in old_day_notes.items()
+    }
 
     sources_out: Dict[str, Dict[str, Any]] = dict(old_sources)
     changed_any = not os.path.exists(OUTPUT_FILE)
@@ -709,12 +781,13 @@ def main() -> None:
     for kind, selected_items in found.items():
         expected_classes = KIND_TO_CLASSES[kind]
 
-        kind_schedule: Dict[str, Dict[str, List[str]]] = {}
+        kind_schedule: Dict[str, Dict[str, List[str]]] = build_empty_kind_schedule(expected_classes)
         kind_notes: Dict[str, Dict[str, str]] = {}
 
         selected_urls = [item["url"] for item in selected_items]
         selected_day_union: Set[str] = set()
         pdf_hashes: List[str] = []
+        week_keys = sorted({item["week_key"] for item in selected_items})
 
         for item in selected_items:
             selected_day_union |= set(item["days"])
@@ -731,7 +804,11 @@ def main() -> None:
                     pass
 
         parsed_days = schedule_days_present(kind_schedule)
-        parsed_class_count = len(kind_schedule)
+
+        parsed_class_count = sum(
+            1 for cls, days in kind_schedule.items()
+            if any(days.get(day) for day in DAY_ORDER)
+        )
 
         if not parsed_days:
             print(f"[WARN] {kind}: selected PDFs produced no parsed schedule. Keeping old state.")
@@ -744,31 +821,32 @@ def main() -> None:
             "source_pdfs": selected_urls,
             "pdf_hash": kind_hash,
             "pdf_hashes": pdf_hashes,
-            "coverage_days": sorted(selected_day_union),
-            "parsed_days": sorted(parsed_days),
+            "coverage_days": sorted(selected_day_union, key=lambda d: DAY_ORDER.index(d)),
+            "parsed_days": sorted(parsed_days, key=lambda d: DAY_ORDER.index(d)),
+            "week_keys": week_keys,
         }
 
         if kind_hash != old_hash:
             changed_any = True
 
-        full_week = parsed_days == EXPECTED_DAYS
-
         print(f"[{kind}] source PDFs: {len(selected_items)}")
-        print(f"[{kind}] selected day coverage: {sorted(selected_day_union)}")
-        print(f"[{kind}] parsed days: {sorted(parsed_days)}")
+        print(f"[{kind}] week keys: {week_keys}")
+        print(f"[{kind}] selected day coverage: {sorted(selected_day_union, key=lambda d: DAY_ORDER.index(d))}")
+        print(f"[{kind}] parsed days: {sorted(parsed_days, key=lambda d: DAY_ORDER.index(d))}")
         print(f"[{kind}] parsed classes: {parsed_class_count}")
 
-        if full_week:
-            for cls in expected_classes:
-                schedule_all.pop(cls, None)
-                day_notes_all.pop(cls, None)
+        # IMPORTANT:
+        # Înlocuim complet orarul vechi pentru liceu/gimnaziu.
+        # Zilele lipsă din PDF-ul curent devin [].
+        # Nu mai moștenim Vineri sau altă zi din săptămâna trecută.
+        for cls in expected_classes:
+            schedule_all[cls] = {
+                day: list(kind_schedule.get(cls, {}).get(day, []))
+                for day in DAY_ORDER
+            }
+            day_notes_all.pop(cls, None)
 
-            merge_schedule_parts(schedule_all, kind_schedule)
-            merge_notes_parts(day_notes_all, kind_notes)
-        else:
-            print(f"[WARN] Partial timetable for {kind}: {sorted(parsed_days)} | keeping missing days from old state")
-            merge_schedule_parts(schedule_all, kind_schedule)
-            merge_notes_parts(day_notes_all, kind_notes)
+        merge_notes_parts(day_notes_all, kind_notes)
 
     if not changed_any and os.path.exists(OUTPUT_FILE):
         print("No detected changes, skipping update.")
@@ -784,7 +862,12 @@ def main() -> None:
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
-    print("Updated timetable.json | classes:", len(schedule_all), "| day_notes classes:", len(out["day_notes"]))
+    print(
+        "Updated timetable.json | classes:",
+        len(schedule_all),
+        "| day_notes classes:",
+        len(out["day_notes"])
+    )
 
     notify_worker(
         title="Schedule updated",
