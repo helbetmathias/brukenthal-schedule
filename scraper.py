@@ -24,6 +24,7 @@ REQUEST_RETRIES = 4
 
 WORKER_NOTIFY_URL = "https://shrill-tooth-d37a.ronzigamespro2007.workers.dev/notify"
 WORKER_AUTH_KEY = os.getenv("WORKER_AUTH_KEY", "")
+FORCE_UPDATE = os.getenv("FORCE_UPDATE", "").lower() in ("1", "true", "yes")
 
 LICEU_CLASSES = [
     "9A", "9B", "9C", "9D",
@@ -75,7 +76,6 @@ def safe_get(url: str, *, stream: bool = False):
         except requests.RequestException as e:
             last_error = e
             print(f"[WARN] request failed attempt {attempt}/{REQUEST_RETRIES}: {url} | {repr(e)}")
-
             if attempt < REQUEST_RETRIES:
                 time.sleep(attempt * 5)
 
@@ -168,7 +168,6 @@ def get_all_pdf_urls() -> List[str]:
         return []
 
     html = resp.text
-
     hrefs = re.findall(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
     urls = [urljoin(URL, h) for h in hrefs]
 
@@ -251,12 +250,10 @@ def choose_current_week_group(items: List[Dict[str, Any]]) -> List[Dict[str, Any
     for item in items:
         groups.setdefault(item["week_key"], []).append(item)
 
-    best_group = max(
+    return max(
         groups.values(),
         key=lambda group: max(tuple(x["score"]) for x in group)
     )
-
-    return best_group
 
 
 def choose_pdfs_for_kind(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -377,8 +374,7 @@ def find_day_zones(page) -> List[Dict[str, float]]:
     zones = []
 
     for w in words:
-        raw = normalize_ws(w.get("text") or "")
-        compact = normalize_compact(raw)
+        compact = normalize_compact(w.get("text") or "")
 
         for de_name, ro_name in DAY_MARKERS.items():
             if de_name in compact:
@@ -465,7 +461,6 @@ def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
 
     for w in words:
         txt = normalize_compact(w.get("text") or "")
-
         if txt in expected_set:
             class_hits.append((txt, w))
 
@@ -522,7 +517,6 @@ def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
     ]
 
     table_left = min(left_candidates) if left_candidates else first_class_left - 65
-
     x_bounds = [table_left, first_class_left] + mids + [last_class_right]
 
     expected_count = len(expected_classes) + 2
@@ -737,9 +731,7 @@ def parse_day_block(
             if entry not in day_schedule[cls]:
                 day_schedule[cls].append(entry)
 
-    day_schedule = {k: v for k, v in day_schedule.items() if v}
-
-    return day_schedule, day_notes
+    return {k: v for k, v in day_schedule.items() if v}, day_notes
 
 
 def parse_pdf(
@@ -751,7 +743,6 @@ def parse_pdf(
 
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[0]
-
         zones = find_day_zones(page)
 
         if not zones:
@@ -793,9 +784,7 @@ def parse_pdf(
                 else:
                     final_notes[cls][day_name] = note
 
-    final_notes = {cls: dn for cls, dn in final_notes.items() if dn}
-
-    return final_schedule, final_notes
+    return final_schedule, {cls: dn for cls, dn in final_notes.items() if dn}
 
 
 def build_empty_kind_schedule(expected_classes: List[str]) -> Dict[str, Dict[str, List[str]]]:
@@ -878,6 +867,9 @@ def load_old_state() -> dict:
 
 
 def main() -> None:
+    if FORCE_UPDATE:
+        print("[FORCE] Manual workflow run detected. Will rewrite timetable.json if PDFs are parsed.")
+
     found = pick_latest_pdfs_by_kind(max_probe=30)
 
     if not found:
@@ -900,11 +892,10 @@ def main() -> None:
     }
 
     sources_out: Dict[str, Dict[str, Any]] = dict(old_sources)
-    changed_any = not os.path.exists(OUTPUT_FILE)
+    changed_any = FORCE_UPDATE or not os.path.exists(OUTPUT_FILE)
 
     for kind, selected_items in found.items():
         expected_classes = KIND_TO_CLASSES[kind]
-
         kind_schedule: Dict[str, Dict[str, List[str]]] = build_empty_kind_schedule(expected_classes)
         kind_notes: Dict[str, Dict[str, str]] = {}
 
@@ -973,6 +964,9 @@ def main() -> None:
     if not changed_any and os.path.exists(OUTPUT_FILE):
         print("No detected changes, skipping update.")
         return
+
+    if FORCE_UPDATE:
+        print("[FORCE] Rewriting timetable.json.")
 
     out = {
         "updated_at": datetime.now(RO_TZ).strftime("%d.%m.%Y %H:%M"),
