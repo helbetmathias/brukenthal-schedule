@@ -4,6 +4,7 @@ import json
 import re
 import hashlib
 import os
+import time
 from datetime import datetime
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
@@ -11,8 +12,15 @@ from typing import Dict, List, Tuple, Optional, Set, Any
 
 RO_TZ = ZoneInfo("Europe/Bucharest")
 URL = "https://brukenthal.ro/"
-HEADERS = {"User-Agent": "Mozilla/5.0"}
 OUTPUT_FILE = "timetable.json"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (GitHub Actions timetable scraper)",
+    "Accept": "text/html,application/pdf,*/*",
+}
+
+REQUEST_TIMEOUT = (20, 90)
+REQUEST_RETRIES = 4
 
 WORKER_NOTIFY_URL = "https://shrill-tooth-d37a.ronzigamespro2007.workers.dev/notify"
 WORKER_AUTH_KEY = os.getenv("WORKER_AUTH_KEY", "")
@@ -49,6 +57,30 @@ EXPECTED_DAYS = set(DAY_ORDER)
 
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s*[-–]\s*\d{1,2}:\d{2}$")
 NOTE_HINTS = ("cab", "lab", "sala", "sală", "clasa", "clasă", "cl.", "cls", "aula")
+
+
+def safe_get(url: str, *, stream: bool = False):
+    last_error = None
+
+    for attempt in range(1, REQUEST_RETRIES + 1):
+        try:
+            resp = requests.get(
+                url,
+                headers=HEADERS,
+                timeout=REQUEST_TIMEOUT,
+                stream=stream,
+            )
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException as e:
+            last_error = e
+            print(f"[WARN] request failed attempt {attempt}/{REQUEST_RETRIES}: {url} | {repr(e)}")
+
+            if attempt < REQUEST_RETRIES:
+                time.sleep(attempt * 5)
+
+    print(f"[ERROR] giving up on URL: {url} | {repr(last_error)}")
+    return None
 
 
 def file_hash(path: str) -> str:
@@ -114,17 +146,27 @@ def normalize_subject(subj: str) -> str:
     return subj
 
 
-def download_to_tmp(pdf_url: str, tmp_name: str) -> None:
-    resp = requests.get(pdf_url, headers=HEADERS, timeout=60)
-    resp.raise_for_status()
+def download_to_tmp(pdf_url: str, tmp_name: str) -> bool:
+    resp = safe_get(pdf_url, stream=True)
+
+    if resp is None:
+        return False
 
     with open(tmp_name, "wb") as f:
-        f.write(resp.content)
+        for chunk in resp.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+
+    return True
 
 
 def get_all_pdf_urls() -> List[str]:
-    resp = requests.get(URL, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
+    resp = safe_get(URL)
+
+    if resp is None:
+        print("[WARN] Could not load Brukenthal homepage. Keeping old timetable.")
+        return []
+
     html = resp.text
 
     hrefs = re.findall(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
@@ -198,7 +240,8 @@ def detect_pdf_kind_and_days(pdf_path: str) -> Tuple[Optional[str], Set[str]]:
 
             return kind, days
 
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] failed to detect pdf kind/days: {pdf_path} | {repr(e)}")
         return None, set()
 
 
@@ -277,9 +320,15 @@ def pick_latest_pdfs_by_kind(max_probe: int = 30) -> Dict[str, List[Dict[str, An
         tmp = f"temp_probe_{i}.pdf"
 
         try:
-            download_to_tmp(u, tmp)
-            kind, days = detect_pdf_kind_and_days(tmp)
-        except Exception:
+            ok = download_to_tmp(u, tmp)
+
+            if not ok:
+                kind, days = None, set()
+            else:
+                kind, days = detect_pdf_kind_and_days(tmp)
+
+        except Exception as e:
+            print(f"[WARN] failed to inspect PDF: {u} | {repr(e)}")
             kind, days = None, set()
 
         if kind not in ("liceu", "gimnaziu"):
@@ -409,10 +458,6 @@ def get_x_bounds_from_edges_fallback(day_crop, expected_classes: List[str]) -> L
 
 
 def get_x_bounds_for_day(day_crop, expected_classes: List[str]) -> List[float]:
-    """
-    Calculează coloanele după textul din antet: 9A...12D / 5A...8D.
-    Asta repară bugul unde liniile PDF tăiau textul la clasele din dreapta.
-    """
     words = day_crop.extract_words(x_tolerance=2, y_tolerance=2) or []
 
     class_hits: List[Tuple[str, dict]] = []
@@ -836,7 +881,7 @@ def main() -> None:
     found = pick_latest_pdfs_by_kind(max_probe=30)
 
     if not found:
-        print("No usable timetable PDFs found on site.")
+        print("No usable timetable PDFs found on site. Keeping old timetable.")
         return
 
     old = load_old_state()
@@ -870,12 +915,14 @@ def main() -> None:
 
         for item in selected_items:
             selected_day_union |= set(item["days"])
-            pdf_hashes.append(file_hash(item["tmp"]))
 
             try:
+                pdf_hashes.append(file_hash(item["tmp"]))
                 part_schedule, part_notes = parse_pdf(item["tmp"], expected_classes)
                 merge_schedule_parts(kind_schedule, part_schedule)
                 merge_notes_parts(kind_notes, part_notes)
+            except Exception as e:
+                print(f"[WARN] failed to parse selected PDF: {item['url']} | {repr(e)}")
             finally:
                 try:
                     os.remove(item["tmp"])
@@ -890,7 +937,7 @@ def main() -> None:
         )
 
         if not parsed_days:
-            print(f"[WARN] {kind}: selected PDFs produced no parsed schedule. Keeping old state.")
+            print(f"[WARN] {kind}: selected PDFs produced no parsed schedule. Keeping old state for this kind.")
             continue
 
         kind_hash = combined_hash(pdf_hashes)
@@ -914,9 +961,6 @@ def main() -> None:
         print(f"[{kind}] parsed days: {sorted(parsed_days, key=lambda d: DAY_ORDER.index(d))}")
         print(f"[{kind}] parsed classes: {parsed_class_count}")
 
-        # Înlocuiește complet orarul vechi pentru liceu/gimnaziu.
-        # Zilele lipsă din PDF-ul curent devin [].
-        # Nu mai moștenește Vineri sau altă zi din săptămâna veche.
         for cls in expected_classes:
             schedule_all[cls] = {
                 day: list(kind_schedule.get(cls, {}).get(day, []))
