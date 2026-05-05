@@ -1,5 +1,5 @@
 {
-  "updated_at": "03.05.2026 10:44",
+  "updated_at": "05.05.2026 10:51",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -29,11 +29,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/05/ORAR-2025-2026_S4m5-1.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/05/ORAR-2025-2026_S4m5_var2.pdf"
       ],
-      "pdf_hash": "b04dcc5dbe43e0e1c5e412cc41b2ff8de883e6aa8abfdcc5af8065d0042ae19e",
+      "pdf_hash": "9ffedd412e83734ad4b858a4a4e3a88ffa0edbaa82675eb582b2b73481760ba9",
       "pdf_hashes": [
-        "1a8c26fa8ccbe70790fc8468ba8fe319be62bf001e5c765dffc5e44dc3672335"
+        "18e02974f33893ba6bf501c799d32192fd2f4e374972b035a1c3c989820fd450"
       ],
       "coverage_days": [
         "Luni",
@@ -730,14 +730,11 @@
         "18:20-19:05 | Bio-MC"
       ],
       "Marti": [
-        "13:00-13:45 | Cor-PS",
         "14:00-14:45 | Eng-SC",
         "14:50-15:35 | Ger-SO",
         "15:45-16:30 | Ist-ID",
         "16:35-17:20 | Rom-RCI",
-        "17:30-18:15 | Ist-ID",
-        "18:20-19:05 | Muz-PS",
-        "19:10-19:55 | Rev-JH"
+        "17:30-18:15 | Ist-ID"
       ],
       "Miercuri": [
         "14:50-15:35 | Ger-SO",
@@ -770,7 +767,6 @@
         "16:35-17:20 | Eds-BA"
       ],
       "Marti": [
-        "13:00-13:45 | Cor-PS",
         "14:00-14:45 | Rom-RL",
         "14:50-15:35 | Rom-RL",
         "15:45-16:30 | Tic-DD",
@@ -816,7 +812,6 @@
         "18:20-19:05 | Eds-BA"
       ],
       "Marti": [
-        "13:00-13:45 | Cor-PS",
         "14:00-14:45 | Muz-PS",
         "14:50-15:35 | Rom-DL",
         "15:45-16:30 | Ger-GB",
@@ -858,7 +853,6 @@
         "17:30-18:15 | Rom-RCI"
       ],
       "Marti": [
-        "13:00-13:45 | Cor-PS",
         "14:00-14:45 | Ger-SO",
         "14:50-15:35 | Edt-IA",
         "15:45-16:30 | Ger-SO",
@@ -1085,7 +1079,6 @@
         "19:10-19:55 | EF-MCP"
       ],
       "Marti": [
-        "13:00-13:45 | Relor-MI",
         "14:00-14:45 | Istm-HM",
         "14:50-15:35 | Tic-DD",
         "15:45-16:30 | Bio-TT",
@@ -1180,12 +1173,11 @@
         "19:10-19:55 | Des-MB"
       ],
       "Marti": [
-        "13:00-13:45 | Relor-MI",
         "14:00-14:45 | Mat-DM",
         "14:50-15:35 | Ger-GB",
         "15:45-16:30 | Istm-HM",
         "16:35-17:20 | Mat-DM",
-        "17:30-18:15 | Muz-PS",
+        "17:30-18:15 | Relor-MI",
         "18:20-19:05 | EF-MCP",
         "19:10-19:55 | Rev-JH"
       ],
@@ -1322,8 +1314,7 @@
       "Marti": [
         "14:00-14:45 | Rom-RC",
         "14:50-15:35 | Rom-RC",
-        "15:45-16:30 | Geo-MG",
-        "16:35-17:20 | Muz-PS"
+        "15:45-16:30 | Geo-MG"
       ],
       "Miercuri": [
         "14:00-14:45 | Ger-KC",
