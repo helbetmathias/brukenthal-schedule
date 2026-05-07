@@ -1,5 +1,5 @@
 {
-  "updated_at": "07.05.2026 16:24",
+  "updated_at": "07.05.2026 22:22",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -29,11 +29,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/05/ORAR-2025-2026_S4m5_var2-1.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/05/ORAR-2025-2026_S4m5_var2-2.pdf"
       ],
-      "pdf_hash": "414088b270526bb321bedebc0629355fb5802bbf16e2a2f918431f6ba10a63b0",
+      "pdf_hash": "f53f4c8db6b2297a013be75dd94c06190c28beb54068e0bb218495bd821a0703",
       "pdf_hashes": [
-        "634276c2cd0547cb42edb9bd10f4f487eaae570499f23f84843886696d8e9b7b"
+        "1fc7ca219e989244c3607fd6a0126b680b728ca83c0824858d674c2622ab0c2d"
       ],
       "coverage_days": [
         "Luni",
@@ -1177,6 +1177,7 @@
         "19:10-19:55 | Chi-DP"
       ],
       "Joi": [
+        "13:00-13:45 | Mat-DM",
         "14:00-14:45 | Rom-DL",
         "14:50-15:35 | Rom-DL",
         "15:45-16:30 | Tic-DD",
@@ -1186,7 +1187,6 @@
         "19:10-19:55 | Geo MG"
       ],
       "Vineri": [
-        "13:00-13:45 | Mat-DM",
         "14:00-14:45 | Fiz-PG",
         "14:50-15:35 | Fiz-PG",
         "15:45-16:30 | Ell-RL",
