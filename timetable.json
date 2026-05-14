@@ -1,5 +1,5 @@
 {
-  "updated_at": "14.05.2026 11:23",
+  "updated_at": "14.05.2026 16:24",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -29,11 +29,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/05/ORAR-2025-2026_S5m5_var3-2.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/05/ORAR-2025-2026_S5m5_var3-4.pdf"
       ],
-      "pdf_hash": "96133a263e1f7e7ae7df45c8f62ac42554b4147e15fc0937e86018661a99be39",
+      "pdf_hash": "5345e0b1c1a17f72a28f1a7365cb5badf79f5a0b33aa854acc9ee4a80166f62f",
       "pdf_hashes": [
-        "0150c3c2abc6a856d2d1536df5e533bc93cb6e66a6b92e13cf2f48ef903b715a"
+        "b183e40f42062e0b3837999572c0df2c8268fd1ff624746c9bcb5689e0f244e8"
       ],
       "coverage_days": [
         "Luni",
@@ -898,8 +898,8 @@
       "Vineri": [
         "14:00-14:45 | Ger-SO",
         "14:50-15:35 | Des-VO",
-        "15:45-16:30 | Relor-MI",
-        "16:35-17:20 | D-SO"
+        "15:45-16:30 | D-SO",
+        "16:35-17:20 | Relor-MI"
       ]
     },
     "6A": {
@@ -1425,6 +1425,9 @@
   "day_notes": {
     "12B": {
       "Vineri": "Cab bio"
+    },
+    "8C": {
+      "Vineri": "cab. bio"
     }
   }
 }
