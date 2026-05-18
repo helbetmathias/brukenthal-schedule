@@ -1,13 +1,13 @@
 {
-  "updated_at": "16.05.2026 10:45",
+  "updated_at": "18.05.2026 12:35",
   "sources": {
     "liceu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/05/orar2025-2026-S31-18-22mai-1.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/05/orar2025-2026-S31-18-22mai-4.pdf"
       ],
-      "pdf_hash": "97d6905ffddb5a422af2b0ed03fe013e1c916edfac2e5322870ec4e0758d8d10",
+      "pdf_hash": "ea48b648276a8e39c4a46709887a18be51ac161863bac3aa0e6a7b1e5b6bcb33",
       "pdf_hashes": [
-        "92c0a5a59847164aae2eccaf41eeab42494065b02f1e786c82cceb2715f324ed"
+        "91527839e6632d9bc4ee5172c84a0f95f5269c85f6b2e0bf805c0f0be9d44287"
       ],
       "coverage_days": [
         "Luni",
@@ -61,10 +61,9 @@
         "9:00-9:50 | Fiz-Bac",
         "10:00-10:50 | Fiz-Bac",
         "11:00-11:50 | Ger-Iac",
-        "12:00-12:50 | Tic-DD",
+        "12:00-12:50 | InfLb1-D",
         "13:00-13:45 | InfLb1-D",
-        "14:00-14:45 | InfLb1-D",
-        "14:50-15:35 | InfLb1-D"
+        "14:00-14:45 | InfLb1-D"
       ],
       "Marti": [
         "7:20-8:00 | Eng-Va",
@@ -73,7 +72,7 @@
         "10:00-10:50 | Rom-Ba",
         "11:00-11:50 | Bio-Mun",
         "12:00-12:50 | Info-Fl",
-        "13:00-13:45 | Bio-Mun",
+        "13:00-13:45 | Tic-DD",
         "14:00-14:45 | AJ-Ka9A"
       ],
       "Miercuri": [
@@ -88,6 +87,7 @@
         "14:50-15:35 | InfIb2-DD"
       ],
       "Joi": [
+        "8:00-8:50 | Bio-Mun",
         "9:00-9:50 | Rom-Ba",
         "10:00-10:50 | Rom-Ba",
         "11:00-11:50 | Mat-HB",
@@ -114,7 +114,7 @@
         "9:00-9:50 | Ger-Iac",
         "10:00-10:50 | Eng-Su",
         "11:00-11:50 | Rom-LR",
-        "12:00-12:50 | Mat-HB",
+        "12:00-12:50 | DMat-HB",
         "13:00-13:45 | DRom-LR",
         "14:00-14:45 | DAJ-Ka"
       ],
@@ -426,10 +426,9 @@
         "9:00-9:50 | Chi-CD",
         "10:00-10:50 | Ger-Iac",
         "11:00-11:50 | Eng-Va",
-        "12:00-12:50 | Info-Fl",
+        "12:00-12:50 | InfLb1-Fl",
         "13:00-13:45 | InfLb1-Fl",
-        "14:00-14:45 | InfLb1-Fl",
-        "14:50-15:35 | InfLb1-Fl"
+        "14:00-14:45 | InfLb1-Fl"
       ],
       "Marti": [
         "7:20-8:00 | InfIb2-Fl",
@@ -447,10 +446,10 @@
         "11:00-11:50 | Ger-Iac"
       ],
       "Joi": [
-        "7:20-8:00 | Info-Fl",
-        "8:00-8:50 | Info-Fl",
+        "7:20-8:00 | Info lb-Fl",
+        "8:00-8:50 | Info lb-Fl",
         "9:00-9:50 | Fiz-St",
-        "10:00-10:50 | Mat-RC",
+        "10:00-10:50 | Info-Fl",
         "11:00-11:50 | IeH-Li",
         "12:00-12:50 | Ger-Iac",
         "13:00-13:45 | Econ-Ka",
@@ -463,6 +462,7 @@
         "10:00-10:50 | ist-La",
         "11:00-11:50 | Mat-RC",
         "12:00-12:50 | Bio-Mun",
+        "13:00-13:45 | Mat-RC",
         "14:00-14:45 | Relort-Ma"
       ]
     },
@@ -564,7 +564,7 @@
       "Marti": [
         "7:20-8:00 | Rom-Tr",
         "8:00-8:50 | Rom-Tr",
-        "9:00-9:50 | EdArt-ML",
+        "9:00-9:50 | EdArt-M",
         "10:00-10:50 | IeH-Li",
         "11:00-11:50 | Spa-Laz",
         "12:00-12:50 | ist-Li",
@@ -723,7 +723,7 @@
         "11:00-11:50 | Ger-Mih"
       ],
       "Marti": [
-        "8:00-8:50 | EdArt-ML",
+        "8:00-8:50 | EdArt-M",
         "9:00-9:50 | Rom-Ba",
         "10:00-10:50 | Geo-SC",
         "11:00-11:50 | istcom-La",
