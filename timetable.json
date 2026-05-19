@@ -1,13 +1,13 @@
 {
-  "updated_at": "18.05.2026 12:35",
+  "updated_at": "19.05.2026 22:40",
   "sources": {
     "liceu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/05/orar2025-2026-S31-18-22mai-4.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/05/orar2025-2026-S31-18-22mai-2-1.pdf"
       ],
-      "pdf_hash": "ea48b648276a8e39c4a46709887a18be51ac161863bac3aa0e6a7b1e5b6bcb33",
+      "pdf_hash": "0ffab9ef2402ac9431a21df121d4c68f718c9a76f0652a5f3080bfb53b17f213",
       "pdf_hashes": [
-        "91527839e6632d9bc4ee5172c84a0f95f5269c85f6b2e0bf805c0f0be9d44287"
+        "118a41d5bc7236c506b60ed495ab215e604a8e80d939e33529732478d39749e0"
       ],
       "coverage_days": [
         "Luni",
@@ -629,7 +629,7 @@
       "Vineri": [
         "8:00-8:50 | Eng-Su",
         "9:00-9:50 | Rom-Tr",
-        "10:00-10:50 | Edfiz-Fus",
+        "10:00-10:50 | Mat-RC",
         "11:00-11:50 | Ger-Iac",
         "12:00-12:50 | Fil-Pop"
       ]
