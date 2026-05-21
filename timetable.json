@@ -1,13 +1,13 @@
 {
-  "updated_at": "19.05.2026 22:40",
+  "updated_at": "21.05.2026 11:52",
   "sources": {
     "liceu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/05/orar2025-2026-S31-18-22mai-2-1.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/05/orar2025-2026-S31-18-22mai-2-2.pdf"
       ],
-      "pdf_hash": "0ffab9ef2402ac9431a21df121d4c68f718c9a76f0652a5f3080bfb53b17f213",
+      "pdf_hash": "c46ad26899b54e43cae3588f39f7e53e60962649f75dab290a8eee01310d0cf9",
       "pdf_hashes": [
-        "118a41d5bc7236c506b60ed495ab215e604a8e80d939e33529732478d39749e0"
+        "f8076b1ea2ce565e83527c07a1636e268d5c97ac457288b309d1dd3765cd7ba7"
       ],
       "coverage_days": [
         "Luni",
@@ -184,8 +184,7 @@
         "9:00-9:50 | Ger-UM",
         "10:00-10:50 | Tic-SO",
         "11:00-11:50 | Rom-Tr",
-        "12:00-12:50 | Mat-HB",
-        "13:00-13:45 | Geo-SC"
+        "12:00-12:50 | Mat-HB"
       ],
       "Vineri": [
         "8:00-8:50 | InfLb-Cos",
@@ -230,7 +229,7 @@
         "9:00-9:50 | Log-Pop",
         "10:00-10:50 | Mat-Pro",
         "11:00-11:50 | Tic-Cos",
-        "12:00-12:50 | Geo-SC",
+        "12:00-12:50 | Tic-Cos",
         "13:00-13:45 | Edfiz-Fus",
         "14:00-14:45 | Relort-Ma"
       ],
@@ -239,7 +238,6 @@
         "9:00-9:50 | Eng-Su",
         "10:00-10:50 | Bio-Mun",
         "11:00-11:50 | Eng-Su",
-        "12:00-12:50 | Tic-Cos",
         "14:00-14:45 | dsp-Fus",
         "14:50-15:35 | fotbal-Fus"
       ]
@@ -406,7 +404,7 @@
         "8:00-8:50 | Eng-Su",
         "9:00-9:50 | ist-Li",
         "10:00-10:50 | Spa-Laz",
-        "11:00-11:50 | Geo-SC",
+        "11:00-11:50 | Spa-Laz",
         "12:00-12:50 | Ger-Cri",
         "13:00-13:45 | Ger-Cri",
         "14:50-15:35 | Relort-Ma"
@@ -535,7 +533,7 @@
         "7:20-8:00 | Fiz-Bac",
         "8:00-8:50 | Fiz-Bac",
         "9:00-9:50 | Edfiz-Fus",
-        "10:00-10:50 | Geo-SC",
+        "10:00-10:50 | Edfiz-Fus",
         "11:00-11:50 | ist-La",
         "12:00-12:50 | IeH-Li",
         "13:00-13:45 | Chi-Tud",
@@ -620,7 +618,7 @@
       "Joi": [
         "7:20-8:00 | Rom-Tr",
         "8:00-8:50 | Rom-Tr",
-        "9:00-9:50 | Geo-SC",
+        "9:00-9:50 | Rom-Tr",
         "10:00-10:50 | ist-La",
         "11:00-11:50 | Fiz-Bo",
         "12:00-12:50 | Mat-RC",
