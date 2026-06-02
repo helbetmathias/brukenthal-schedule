@@ -1,5 +1,5 @@
 {
-  "updated_at": "29.05.2026 23:04",
+  "updated_at": "02.06.2026 23:32",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -25,11 +25,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/05/gimnaziu_ORAR-2025-2026_S8.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/06/gimnaziu_ORAR-2025-2026_S8.pdf"
       ],
-      "pdf_hash": "cc7b7ca493aed5e6e93472ec512b3438d44d152434fbbd6163ec6b755ceda62a",
+      "pdf_hash": "8134dfe4062692094a300cc503234e43542a4d9ea336bfbd4c8f92b297fbe52b",
       "pdf_hashes": [
-        "69ce6123d3afcaa990c79e5b07a77e0bdc6af3e6ece00952e92e9ff05050ca17"
+        "2cfd0436a10a33d76a70e463d779f58a9defe4dbc155c735649489833f636f12"
       ],
       "coverage_days": [
         "Marti",
@@ -560,10 +560,8 @@
         "19:10-19:55 | Rev-JH"
       ],
       "Miercuri": [
-        "13:00-13:45 | EG-MCP / CmGu-KA",
-        "14:00-14:45 | Eng-MCP",
         "14:50-15:35 | Rom-DL",
-        "15:45-16:30 | Ger-GB",
+        "15:45-16:30 | Eng-MCP",
         "16:35-17:20 | Edt-IA",
         "17:30-18:15 | Rom-DL"
       ],
@@ -806,9 +804,8 @@
         "19:10-19:55 | Rev-JH"
       ],
       "Miercuri": [
-        "14:00-14:45 | Bio-MC",
-        "14:50-15:35 | Ger-GB",
-        "15:45-16:30 | Ist-LI",
+        "14:50-15:35 | Ist-LI",
+        "15:45-16:30 | Bio-MC",
         "16:35-17:20 | Rom-DL",
         "17:30-18:15 | Bio-MC",
         "18:20-19:05 | Chi-DP",
@@ -819,10 +816,8 @@
         "14:00-14:45 | Rom-DL",
         "14:50-15:35 | Rom-DL",
         "15:45-16:30 | Tic-DD",
-        "16:35-17:20 | Eds-BA",
-        "17:30-18:15 | Ger-GB",
-        "18:20-19:05 | Ger-GB",
-        "19:10-19:55 | Geo-MG"
+        "16:35-17:20 | Geo-MG",
+        "17:30-18:15 | Eds-BA"
       ],
       "Vineri": []
     },
@@ -839,8 +834,7 @@
         "19:10-19:55 | Rev-JH"
       ],
       "Miercuri": [
-        "13:00-13:45 | Bio-MC",
-        "14:00-14:45 | Ger-GB",
+        "14:00-14:45 | Bio-MC",
         "14:50-15:35 | Edf-VM",
         "15:45-16:30 | Edf-VM",
         "16:35-17:20 | Chi-DP",
@@ -852,9 +846,8 @@
         "14:00-14:45 | Bio-MC",
         "14:50-15:35 | Tic-DD",
         "15:45-16:30 | Rom-DL",
-        "16:35-17:20 | Ger-GB",
-        "17:30-18:15 | Fiz-BS",
-        "18:20-19:05 | Fiz-BS"
+        "16:35-17:20 | Fiz-BS",
+        "17:30-18:15 | Fiz-BS"
       ],
       "Vineri": []
     },
