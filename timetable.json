@@ -1,5 +1,5 @@
 {
-  "updated_at": "09.06.2026 11:58",
+  "updated_at": "09.06.2026 17:15",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -29,11 +29,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/06/gimnaziu_ORAR-2025-2026_S9_var2-1.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/06/gimnaziu_ORAR-2025-2026_S9_var2-2.pdf"
       ],
-      "pdf_hash": "2d6c35a80de355d46809d65864925c5c2df4e41f34720cba14d77cc6e5c377e1",
+      "pdf_hash": "7b30ca1ddfab818f08252b5e493bdbb9ab13d1e8e16b6442d739cf0604df142b",
       "pdf_hashes": [
-        "b6aba064ced60105c8bfe735178597d70ec4f4e49df4c05f1ba62397a7115bda"
+        "46d2e2ea3bb00167be0bc46d91b0044da6402e06340759ea20bd8be4aa80e30b"
       ],
       "coverage_days": [
         "Luni",
@@ -608,7 +608,7 @@
         "14:00-14:45 | Mat-MH",
         "14:50-15:35 | Ger-SO",
         "15:45-16:30 | Muz-PS",
-        "16:35-17:20 | Mat-MH",
+        "16:35-17:20 | Muz-PS",
         "17:30-18:15 | Chit-TT"
       ],
       "Joi": [
@@ -730,9 +730,8 @@
         "13:00-13:45 | EG-MCP CmGu-KA",
         "14:00-14:45 | Ger-SO",
         "14:50-15:35 | Mat-MH",
-        "15:45-16:30 | Mat-MH",
-        "16:35-17:20 | Edf-AG",
-        "17:30-18:15 | Edf-AG"
+        "15:45-16:30 | Edf-AG",
+        "16:35-17:20 | Edf-AG"
       ],
       "Joi": [
         "14:00-14:45 | Rom-RCI",
@@ -1215,5 +1214,14 @@
       ]
     }
   },
-  "day_notes": {}
+  "day_notes": {
+    "6B": {
+      "Miercuri": "Saal 15",
+      "Joi": "Saal 15"
+    },
+    "6D": {
+      "Miercuri": "Saal 2",
+      "Joi": "Saal 2"
+    }
+  }
 }
