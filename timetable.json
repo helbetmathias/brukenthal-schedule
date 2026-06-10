@@ -1,5 +1,5 @@
 {
-  "updated_at": "09.06.2026 17:15",
+  "updated_at": "10.06.2026 17:46",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -29,11 +29,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/06/gimnaziu_ORAR-2025-2026_S9_var2-2.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/06/gimnaziu_ORAR-2025-2026_S9_var2-1-1.pdf"
       ],
-      "pdf_hash": "7b30ca1ddfab818f08252b5e493bdbb9ab13d1e8e16b6442d739cf0604df142b",
+      "pdf_hash": "2dd70a87da3a3cfd025e3f37ce94989780396922604a7ec58c687509a6cb3540",
       "pdf_hashes": [
-        "46d2e2ea3bb00167be0bc46d91b0044da6402e06340759ea20bd8be4aa80e30b"
+        "af6200c11057f37772e900f9dc5eec1caad03cc8a10abf0f30d1fdcb2844120d"
       ],
       "coverage_days": [
         "Luni",
@@ -604,7 +604,6 @@
         "17:30-18:15 | Ist-ID"
       ],
       "Miercuri": [
-        "13:00-13:45 | CmGu-KA",
         "14:00-14:45 | Mat-MH",
         "14:50-15:35 | Ger-SO",
         "15:45-16:30 | Muz-PS",
@@ -643,7 +642,6 @@
         "19:10-19:55 | Rev-JH"
       ],
       "Miercuri": [
-        "13:00-13:45 | CmGu-KA",
         "14:00-14:45 | Eng-SC",
         "14:50-15:35 | Eng-SC",
         "15:45-16:30 | Ger-SO",
@@ -685,10 +683,10 @@
         "16:35-17:20 | Tic-DD"
       ],
       "Miercuri": [
-        "13:00-13:45 | EG-MCP CmGu-KA",
+        "13:00-13:45 | EG-MCP",
         "14:00-14:45 | Eng-MCP",
         "14:50-15:35 | Rom-DL",
-        "15:45-16:30 | Ger-GB",
+        "15:45-16:30 | Eng-MCP",
         "16:35-17:20 | Edt-IA",
         "17:30-18:15 | Rom-DL"
       ],
@@ -703,8 +701,7 @@
       "Vineri": [
         "14:00-14:45 | Bio-ML",
         "14:50-15:35 | Geo-MG",
-        "15:45-16:30 | Des-VO",
-        "16:35-17:20 | Eng-MCP"
+        "15:45-16:30 | Des-VO"
       ]
     },
     "5D": {
@@ -727,7 +724,7 @@
         "19:10-19:55 | Rev-JH"
       ],
       "Miercuri": [
-        "13:00-13:45 | EG-MCP CmGu-KA",
+        "13:00-13:45 | EG-MCP",
         "14:00-14:45 | Ger-SO",
         "14:50-15:35 | Mat-MH",
         "15:45-16:30 | Edf-AG",
@@ -850,7 +847,6 @@
         "19:10-19:55 | Rev-JH"
       ],
       "Miercuri": [
-        "13:00-13:45 | Chit-TT",
         "14:00-14:45 | Bio-TT",
         "14:50-15:35 | Rom-RC",
         "15:45-16:30 | Rom-RC",
@@ -1018,9 +1014,8 @@
         "17:30-18:15 | Muz-PS"
       ],
       "Miercuri": [
-        "13:00-13:45 | Mat-DM",
         "14:00-14:45 | Bio-MC",
-        "14:50-15:35 | Ger-GB",
+        "14:50-15:35 | Mat-DM",
         "15:45-16:30 | Ist-LI",
         "16:35-17:20 | Rom-DL",
         "17:30-18:15 | Bio-MC"
@@ -1060,8 +1055,6 @@
         "16:35-17:20 | Istm-HM"
       ],
       "Miercuri": [
-        "13:00-13:45 | Bio-MC",
-        "14:00-14:45 | Ger-GB",
         "14:50-15:35 | Edf-VM",
         "15:45-16:30 | Edf-VM",
         "16:35-17:20 | Chi-DP",
@@ -1102,7 +1095,6 @@
         "17:30-18:15 | Des-MB"
       ],
       "Miercuri": [
-        "13:00-13:45 | Rom-DL",
         "14:00-14:45 | Rom-DL",
         "14:50-15:35 | Geo-MG",
         "15:45-16:30 | Eds-KA",
@@ -1144,7 +1136,7 @@
       "Joi": [],
       "Vineri": [
         "13:00-13:45 | tea de în",
-        "14:00-14:45 | a VI"
+        "14:00-14:45 | a V"
       ]
     },
     "8C": {
