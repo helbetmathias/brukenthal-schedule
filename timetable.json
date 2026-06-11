@@ -1,5 +1,5 @@
 {
-  "updated_at": "10.06.2026 17:46",
+  "updated_at": "11.06.2026 13:02",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -29,11 +29,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/06/gimnaziu_ORAR-2025-2026_S9_var2-1-1.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/06/gimnaziu_ORAR-2025-2026_S9_var2-1-2.pdf"
       ],
-      "pdf_hash": "2dd70a87da3a3cfd025e3f37ce94989780396922604a7ec58c687509a6cb3540",
+      "pdf_hash": "75a66eb56b51cb224e5a45936a7554c68d30eda69077b8a46b845dbd98c2dbbc",
       "pdf_hashes": [
-        "af6200c11057f37772e900f9dc5eec1caad03cc8a10abf0f30d1fdcb2844120d"
+        "91df5a6272052d065f7c0748fd9dcef28e3fdb28375e05839b8bdd6ae9ae67ec"
       ],
       "coverage_days": [
         "Luni",
@@ -622,8 +622,7 @@
         "14:00-14:45 | Rom-RCI",
         "14:50-15:35 | Ger-SO",
         "15:45-16:30 | Ger-SO",
-        "16:35-17:20 | Rom-RCI",
-        "17:30-18:15 | EG-MCP"
+        "16:35-17:20 | Rom-RCI"
       ]
     },
     "5B": {
@@ -662,7 +661,7 @@
         "14:50-15:35 | Rom-RL",
         "15:45-16:30 | Edt-IA",
         "16:35-17:20 | Des-VO",
-        "17:30-18:15 | EG-MCP"
+        "18:20-19:05 | ilmabend,"
       ]
     },
     "5C": {
@@ -701,7 +700,8 @@
       "Vineri": [
         "14:00-14:45 | Bio-ML",
         "14:50-15:35 | Geo-MG",
-        "15:45-16:30 | Des-VO"
+        "15:45-16:30 | Des-VO",
+        "18:20-19:05 | 17:30-19:3"
       ]
     },
     "5D": {
@@ -1136,7 +1136,7 @@
       "Joi": [],
       "Vineri": [
         "13:00-13:45 | tea de în",
-        "14:00-14:45 | a V"
+        "14:00-14:45 | a VI"
       ]
     },
     "8C": {
@@ -1209,11 +1209,13 @@
   "day_notes": {
     "6B": {
       "Miercuri": "Saal 15",
-      "Joi": "Saal 15"
+      "Joi": "Saal 15",
+      "Vineri": "Saal 15"
     },
     "6D": {
       "Miercuri": "Saal 2",
-      "Joi": "Saal 2"
+      "Joi": "Saal 2",
+      "Vineri": "Saal 2"
     }
   }
 }
