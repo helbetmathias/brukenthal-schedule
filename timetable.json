@@ -1,5 +1,5 @@
 {
-  "updated_at": "12.09.2026 12:41",
+  "updated_at": "14.09.2026 14:04",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -29,11 +29,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/09/Orar_Gim-S2_v1.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/09/Orar_Gim-S2_v2.pdf"
       ],
-      "pdf_hash": "fde5b30d4343fab47e219e62e38bae26fff10e44356e9d13b410284b336c24b6",
+      "pdf_hash": "b38a2f7ade02346685ddbfb987deabfba2e217be4be9672a0953a4cec72b2cba",
       "pdf_hashes": [
-        "7bda95ca2cb9c617e16d787d5397409398fe99b2bf2b51e88ac8d90605df4137"
+        "33ed23e093fae0aebd4b655ed6b394f6a608203dd8ebfc911daac5326067efc8"
       ],
       "coverage_days": [
         "Luni",
@@ -685,6 +685,7 @@
         "18:20-19:05 | Ist-BT"
       ],
       "Marti": [
+        "13:00-13:45 | Relor-GV",
         "14:00-14:45 | Mat-CI",
         "14:50-15:35 | Rom-RC",
         "15:45-16:30 | Muz-SD",
@@ -700,7 +701,6 @@
         "17:30-18:15 | Eng-CAd"
       ],
       "Joi": [
-        "13:00-13:45 | Relor-GV",
         "14:00-14:45 | Rom-RC",
         "14:50-15:35 | Bio-TT",
         "15:45-16:30 | Ger-MI",
@@ -917,6 +917,7 @@
     },
     "6C": {
       "Luni": [
+        "13:00-13:45 | Relor-GV",
         "14:00-14:45 | Rom-DL",
         "14:50-15:35 | Rom-DL",
         "15:45-16:30 | Ger-SC",
@@ -941,7 +942,6 @@
         "18:20-19:05 | Ist-BT"
       ],
       "Joi": [
-        "14:00-14:45 | Relor-GV",
         "14:50-15:35 | Bio-ML",
         "15:45-16:30 | Ger-SC",
         "16:35-17:20 | Mat-DM",
