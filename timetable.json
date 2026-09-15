@@ -1,13 +1,13 @@
 {
-  "updated_at": "14.09.2026 14:04",
+  "updated_at": "15.09.2026 13:33",
   "sources": {
     "liceu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/09/Orar_Liceu-S2_v2.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/09/Orar_Liceu-26_27-S2_v3.pdf"
       ],
-      "pdf_hash": "c74614e5355ae8935cb454177a01caecf501d02bfdbbd126f548cebf14c1ed7b",
+      "pdf_hash": "981c26a0f2aa38554e2c0e540b96ffe543ec7a4b0afb4a9973f8dd8bad930bb0",
       "pdf_hashes": [
-        "d22d1acba90ed5d6d17d2034ad9cf0de75bdeaae7d1bcb4a7ea7338ef66f8350"
+        "d76164579e58b8dcf7a7ac13ad788327113888aa6ed492919dd39ecd727dcb86"
       ],
       "coverage_days": [
         "Luni",
@@ -274,17 +274,17 @@
         "12:00-12:50 | Geo-SC"
       ],
       "Joi": [
-        "8:00-8:50 | Ger-Iac",
-        "9:00-9:50 | Rom-LR",
-        "10:00-10:50 | Fiz-Bac",
-        "11:00-11:50 | Bio-TL",
-        "12:00-12:50 | Mat-HB"
+        "9:00-9:50 | Mat-HB",
+        "10:00-10:50 | Ger-Iac",
+        "11:00-11:50 | Ger-Iac",
+        "12:00-12:50 | Bio-TL",
+        "13:00-13:45 | Rom-LR"
       ],
       "Vineri": [
         "9:00-9:50 | Psih-Pop",
         "10:00-10:50 | Mat-HB",
         "11:00-11:50 | ist-La",
-        "12:00-12:50 | Ger-Iac",
+        "12:00-12:50 | Rom-LR",
         "13:00-13:45 | Tic-SO"
       ]
     },
@@ -353,7 +353,6 @@
         "13:00-13:45 | Muz-SD"
       ],
       "Joi": [
-        "7:20-8:00 | Fiz-AF",
         "8:00-8:50 | Spa-Laz",
         "9:00-9:50 | Geo-SC",
         "10:00-10:50 | Edant-Ka",
@@ -624,11 +623,10 @@
         "13:00-13:45 | Chi-Tud"
       ],
       "Joi": [
+        "8:00-8:50 | Rom-Ba",
         "9:00-9:50 | Tic-Dr",
         "10:00-10:50 | Eng-Va",
-        "11:00-11:50 | Rom-Ba",
-        "12:00-12:50 | Bio-TL",
-        "13:00-13:45 | istcom-La"
+        "11:00-11:50 | Bio-TL"
       ],
       "Vineri": [
         "8:00-8:50 | Rom-Ba",
@@ -662,7 +660,7 @@
         "7:20-8:00 | ist-LI",
         "8:00-8:50 | ist-LI",
         "9:00-9:50 | Rom-Tr",
-        "10:00-10:50 | Ger-Iac",
+        "10:00-10:50 | Fil-Pop",
         "11:00-11:50 | istcom-LI",
         "12:00-12:50 | Spa-Laz",
         "13:00-13:45 | Spa-Laz"
@@ -672,7 +670,7 @@
         "9:00-9:50 | Eng-Va",
         "10:00-10:50 | Rom-Tr",
         "11:00-11:50 | Ger-Iac",
-        "12:00-12:50 | Fil-Pop"
+        "12:00-12:50 | Ger-Iac"
       ]
     },
     "5A": {
