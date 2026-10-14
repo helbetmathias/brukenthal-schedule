@@ -1,13 +1,13 @@
 {
-  "updated_at": "13.10.2026 16:02",
+  "updated_at": "15.10.2026 00:01",
   "sources": {
     "liceu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/10/Orar_Liceu-26_27-S6_v3.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/10/Orar_Liceu-26_27-S6_v4.pdf"
       ],
-      "pdf_hash": "e0a99c7e3c95a0baed2d72892840d37fcb7cf83e1c84e92efc76c7129f5f843c",
+      "pdf_hash": "52e243025111c6b16f8da6c255b090e24e783a9072315ca6c2de584720d5e185",
       "pdf_hashes": [
-        "b27524d04c4fcc9c602ff6ed400ff416af78b591a3b196c172b1c9e53a21f841"
+        "f3e00810ea7abe5523b3a63c6dfc81917806ffeab4a1edadd900330dc033f286"
       ],
       "coverage_days": [
         "Luni",
@@ -354,10 +354,9 @@
       ],
       "Vineri": [
         "8:00-8:50 | ist-La",
-        "9:00-9:50 | Ger-He",
+        "9:00-9:50 | Tic-SO",
         "10:00-10:50 | Fiz-ZS",
-        "11:00-11:50 | Fiz-ZS",
-        "12:00-12:50 | Tic-SO"
+        "11:00-11:50 | Fiz-ZS"
       ]
     },
     "10D": {
@@ -481,8 +480,7 @@
         "9:00-9:50 | Econ-Ka",
         "10:00-10:50 | Rom-LR",
         "11:00-11:50 | Fiz-Bo",
-        "12:00-12:50 | Eng-BD",
-        "13:00-13:45 | Ger-He"
+        "12:00-12:50 | Eng-BD"
       ],
       "Vineri": [
         "7:20-8:00 | Mat-HB",
@@ -517,15 +515,12 @@
         "14:50-15:35 | Relort-Ma"
       ],
       "Joi": [
-        "8:00-8:50 | Rom-LR",
         "9:00-9:50 | ist-LI",
         "10:00-10:50 | Fiz-Bo",
-        "11:00-11:50 | Ger-He",
+        "11:00-11:50 | Rom-LR",
         "12:00-12:50 | Rom-LR"
       ],
       "Vineri": [
-        "7:20-8:00 | Ger-He",
-        "8:00-8:50 | Ger-He",
         "9:00-9:50 | Bio-TT",
         "10:00-10:50 | Tic-Dr",
         "11:00-11:50 | Bio-TT",
@@ -611,9 +606,6 @@
         "14:00-14:45 | Relort-Ma"
       ],
       "Vineri": [
-        "7:20-8:00 | InfIb2-DD",
-        "8:00-8:50 | InfIb2-DD",
-        "9:00-9:50 | InfIb2-DD",
         "10:00-10:50 | Ger-Iac",
         "11:00-11:50 | ist-La",
         "12:00-12:50 | Rom-LR"
@@ -642,13 +634,11 @@
         "9:00-9:50 | Chi-Tud",
         "10:00-10:50 | istcom-La",
         "11:00-11:50 | ist-La",
-        "12:00-12:50 | Ger-He",
         "14:00-14:45 | Relort-Ma"
       ],
       "Vineri": [
         "8:00-8:50 | Bio-TT",
-        "9:00-9:50 | Eng-Va",
-        "10:00-10:50 | Ger-He"
+        "9:00-9:50 | Eng-Va"
       ]
     },
     "12C": {
