@@ -1,13 +1,13 @@
 {
-  "updated_at": "15.10.2026 00:01",
+  "updated_at": "15.10.2026 18:51",
   "sources": {
     "liceu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/10/Orar_Liceu-26_27-S6_v4.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/10/Orar_Liceu-26_27-S6_v4-1.pdf"
       ],
-      "pdf_hash": "52e243025111c6b16f8da6c255b090e24e783a9072315ca6c2de584720d5e185",
+      "pdf_hash": "16a95189df0737309618ba35c3c1ae38db76b32e9a442951787e4bf30484a190",
       "pdf_hashes": [
-        "f3e00810ea7abe5523b3a63c6dfc81917806ffeab4a1edadd900330dc033f286"
+        "8a8a4791504e9e618423f783e12deac574f684bf800fa63895527121a73410e4"
       ],
       "coverage_days": [
         "Luni",
@@ -396,7 +396,7 @@
         "13:00-13:45 | Psih-Pop"
       ],
       "Vineri": [
-        "7:20-8:00 | Dirig-BS",
+        "7:20-8:00 | Dirig-BST",
         "8:00-8:50 | ist-BST",
         "9:00-9:50 | Edfiz-Fus",
         "10:00-10:50 | Mat-HB",
@@ -606,6 +606,8 @@
         "14:00-14:45 | Relort-Ma"
       ],
       "Vineri": [
+        "8:00-8:50 | InfLb-FD",
+        "9:00-9:50 | InfLb-FD",
         "10:00-10:50 | Ger-Iac",
         "11:00-11:50 | ist-La",
         "12:00-12:50 | Rom-LR"
