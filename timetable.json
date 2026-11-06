@@ -1,5 +1,5 @@
 {
-  "updated_at": "06.11.2026 00:57",
+  "updated_at": "06.11.2026 15:19",
   "sources": {
     "liceu": {
       "source_pdfs": [
@@ -29,11 +29,11 @@
     },
     "gimnaziu": {
       "source_pdfs": [
-        "https://brukenthal.ro/wp-content/uploads/2026/11/Orar_Gim-26_27-S8_v2.pdf"
+        "https://brukenthal.ro/wp-content/uploads/2026/11/Orar_Gim-26_27-S8_v2-1.pdf"
       ],
-      "pdf_hash": "0e42467eaa341d8b6ceb6ed6c365b910ddd825e09c123954ded42bd8dfd65bce",
+      "pdf_hash": "3a51a3968bbd582b229a8292496de944b430fe402191c169e2f0853f00591e04",
       "pdf_hashes": [
-        "312ff0eb856fdd2ecc3c8d5c5dc4c12ddd1c41923612b916c387c97bc33fd425"
+        "2bb8dfbc78c7d831fecbe040b38f0a48aeb22544c513779ad027e11edd738284"
       ],
       "coverage_days": [
         "Vineri"
@@ -799,7 +799,8 @@
         "14:50-15:35 | D-RL",
         "15:45-16:30 | Bio-ML",
         "16:35-17:20 | Eng-SC",
-        "17:30-18:15 | Ger-SO"
+        "17:30-18:15 | Ger-SO",
+        "18:20-19:05 | Cor"
       ]
     },
     "6C": {
@@ -813,7 +814,8 @@
         "14:50-15:35 | Rom-DL",
         "15:45-16:30 | Mat-DM",
         "16:35-17:20 | Mat-DM",
-        "17:30-18:15 | Eds-CAd"
+        "17:30-18:15 | Eds-CAd",
+        "18:20-19:05 | -PS"
       ]
     },
     "6D": {
@@ -840,7 +842,8 @@
         "14:50-15:35 | Eng-SC",
         "15:45-16:30 | Eng-SC",
         "16:35-17:20 | Tic-IA",
-        "17:30-18:15 | Chi-DP"
+        "17:30-18:15 | Chi-DP",
+        "18:20-19:05 | Relor-GV"
       ]
     },
     "7B": {
@@ -853,7 +856,8 @@
         "14:50-15:35 | Tic-IA",
         "15:45-16:30 | Chi-DP",
         "16:35-17:20 | Des-RA",
-        "17:30-18:15 | Edf-VM"
+        "17:30-18:15 | Edf-VM",
+        "18:20-19:05 | Edf-VM"
       ]
     },
     "7C": {
@@ -862,10 +866,12 @@
       "Miercuri": [],
       "Joi": [],
       "Vineri": [
+        "13:00-13:45 | ST-OS",
         "14:50-15:35 | Mat-CI",
         "15:45-16:30 | Mat-CI",
         "16:35-17:20 | Geo-MG",
-        "17:30-18:15 | Tic-IA"
+        "17:30-18:15 | Tic-IA",
+        "18:20-19:05 | MkU"
       ]
     },
     "7D": {
@@ -879,7 +885,8 @@
         "14:50-15:35 | Chi-DP",
         "15:45-16:30 | Tic-IA",
         "16:35-17:20 | Bio-ML",
-        "17:30-18:15 | Bio-ML"
+        "17:30-18:15 | Bio-ML",
+        "18:20-19:05 | -KA"
       ]
     },
     "8A": {
